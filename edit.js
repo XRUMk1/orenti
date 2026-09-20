@@ -6,8 +6,8 @@
   // ============== НАСТРОЙКИ ==============
   const CONFIG = {
     // SHA-256 хеш логина и пароля (см. инструкцию)
-    loginHash:    "ВСТАВЬ_ХЕШ_ЛОГИНА",
-    passwordHash: "ВСТАВЬ_ХЕШ_ПАРОЛЯ",
+    loginHash:    "9313181f777104d96a4034374e26f0a6fc2af94a1b6d3f9db97067af6f85b11d",
+    passwordHash: "94c69adfda279ab3f7c3dd90a9f59e4f06471f2344719c93f5e96c314af91fb6",
     sessionHours: 72,
     showWhenLocked: false
   };
