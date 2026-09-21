@@ -313,3 +313,40 @@ section.block.editing{
   h2{font-size:22px}
   h1{font-size:38px}
 }
+/* ===== Кнопка «Добавить раздел» в TOC ===== */
+.toc .toc-add{
+  display:block;
+  width:100%;
+  margin-top:12px;
+  padding:10px 12px;
+  background:rgba(255,59,59,.08);
+  border:1px dashed rgba(255,59,59,.5);
+  color:var(--accent);
+  border-radius:6px;
+  cursor:pointer;
+  font-family:inherit;
+  font-weight:800;
+  font-size:12px;
+  text-transform:uppercase;
+  letter-spacing:.08em;
+  transition:.15s;
+  text-align:center;
+}
+.toc .toc-add:hover{
+  background:var(--accent);
+  color:#fff;
+  border-style:solid;
+  border-color:var(--accent);
+}
+
+/* ===== Кнопка «Удалить раздел» (у кастомных секций) ===== */
+.section-tools button.delete{
+  background:rgba(255,59,59,.15);
+  border-color:rgba(255,59,59,.5);
+  color:var(--accent);
+}
+.section-tools button.delete:hover{
+  background:var(--accent);
+  color:#fff;
+  border-color:var(--accent);
+}
