@@ -429,9 +429,15 @@ function makeDraggable(bar){
         tools.querySelector('.cancel').addEventListener('click', cancelEdit);
         tools.querySelector('.reset').addEventListener('click', resetEdit);
 
-        fmtBar = buildFormatToolbar(section);
-        // Вставляем панель в самое начало секции
-        section.insertBefore(fmtBar, section.firstChild);
+       // Панель уже создана?
+let exists = document.querySelector('.fmt-toolbar');
+if (!exists) {
+  const hidden = localStorage.getItem('orenti-fmtbar-hidden') === '1';
+  if (!hidden) {
+    fmtBar = buildFormatToolbar(section);
+    document.body.appendChild(fmtBar);
+  }
+}
       }
 
       function startEdit(){
