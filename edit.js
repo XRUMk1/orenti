@@ -409,7 +409,9 @@ function makeDraggable(bar){
       function renderNormal(){
         section.contentEditable = 'false';
         section.classList.remove('editing');
-        if (fmtBar) { fmtBar.remove(); fmtBar = null; }
+        // Убираем все панели форматирования с экрана
+document.querySelectorAll('.fmt-toolbar').forEach(el => el.remove());
+fmtBar = null;
         tools.innerHTML =
             '<button type="button" class="edit">✏️ Редактировать</button>'
           + (merged[key] ? ' <button type="button" class="reset">🗑 Сбросить</button>' : '');
