@@ -1,14 +1,16 @@
 /* ======================================================
-   ORENTI — редактирование с WYSIWYG + синхронизацией
+   ORENTI — редактор с WYSIWYG и синхронизацией
    ====================================================== */
 (function(){
 
+  // ============== НАСТРОЙКИ ==============
   const CONFIG = {
-    loginHash:    "ВСТАВЬ_ХЕШ_ЛОГИНА",
-    passwordHash: "ВСТАВЬ_ХЕШ_ПАРОЛЯ",
+    loginHash:    "9313181f777104d96a4034374e26f0a6fc2af94a1b6d3f9db97067af6f85b11d",
+    passwordHash: "94c69adfda279ab3f7c3dd90a9f59e4f06471f2344719c93f5e96c314af91fb6",
     sessionHours: 72,
     showWhenLocked: false
   };
+  // ============ / НАСТРОЙКИ ==============
 
   const AUTH_KEY  = 'orenti-auth-until';
   const TOKEN_KEY = 'orenti-edit-token';
@@ -20,6 +22,7 @@
   })();
   function pageKey(id){ return PAGE_SLUG + ':' + id; }
 
+  // ---------- утилиты ----------
   async function sha256(str){
     const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
     return [...new Uint8Array(buf)].map(x => x.toString(16).padStart(2,'0')).join('');
@@ -31,7 +34,7 @@
   // ---------- Контент с сервера ----------
   function getCleanContent(section){
     const c = section.cloneNode(true);
-    c.querySelectorAll('.section-tools, .fmt-toolbar').forEach(el => el.remove());
+    c.querySelectorAll('.section-tools').forEach(el => el.remove());
     return c.innerHTML;
   }
 
@@ -40,7 +43,7 @@
       const id = section.id || ('sec-' + idx);
       const html = serverContent[pageKey(id)];
       if (html == null) return;
-      section.querySelectorAll('.section-tools, .fmt-toolbar').forEach(el => el.remove());
+      section.querySelectorAll('.section-tools').forEach(el => el.remove());
       section.innerHTML = html;
     });
   }
@@ -114,7 +117,7 @@
   }
 
   // =====================================================
-  // WYSIWYG-панель
+  // WYSIWYG-панель (плавающая, перетаскиваемая)
   // =====================================================
   let savedRange = null;
 
@@ -139,228 +142,135 @@
 
   function updateToolbarState(){
     document.querySelectorAll('.fmt-toolbar button[data-cmd]').forEach(btn => {
-      const cmd = btn.dataset.cmd;
       try {
-        if (document.queryCommandState(cmd)) btn.classList.add('active');
+        if (document.queryCommandState(btn.dataset.cmd)) btn.classList.add('active');
         else btn.classList.remove('active');
       } catch(e){}
     });
   }
 
- function buildFormatToolbar(section){
-  const bar = document.createElement('div');
-  bar.className = 'fmt-toolbar';
-  bar.setAttribute('contenteditable','false');
-  bar.innerHTML = `
-    <button type="button" class="fmt-close" title="Скрыть панель">✕</button>
-    <button type="button" data-cmd="bold" title="Жирный (Ctrl+B)"><b>B</b></button>
-    <button type="button" data-cmd="italic" title="Курсив (Ctrl+I)"><i>I</i></button>
-    <button type="button" data-cmd="underline" title="Подчёркнутый (Ctrl+U)"><u>U</u></button>
-    <button type="button" data-cmd="strikeThrough" title="Зачёркнутый"><s>S</s></button>
-    <span class="sep"></span>
-    <select data-format title="Стиль абзаца">
-      <option value="p">Абзац</option>
-      <option value="h2">Заголовок 2</option>
-      <option value="h3">Заголовок 3</option>
-      <option value="blockquote">Цитата</option>
-    </select>
-    <span class="sep"></span>
-    <button type="button" data-cmd="insertUnorderedList" title="Маркированный список">• ≡</button>
-    <button type="button" data-cmd="insertOrderedList" title="Нумерованный список">1. ≡</button>
-    <span class="sep"></span>
-    <label title="Цвет текста">
-      <span class="swatch fg">A</span>
-      <input type="color" data-color="foreColor" value="#ff3b3b">
-    </label>
-    <label title="Цвет фона (маркер)">
-      <span class="swatch bg">A</span>
-      <input type="color" data-color="hiliteColor" value="#ffeb3b">
-    </label>
-    <button type="button" id="eyedropper" title="Пипетка — взять цвет с экрана">🎨</button>
-    <span class="sep"></span>
-    <button type="button" data-cmd="createLink" title="Вставить ссылку">🔗</button>
-    <button type="button" data-cmd="unlink" title="Убрать ссылку">⛓️‍💥</button>
-    <button type="button" data-cmd="removeFormat" title="Очистить формат">✕A</button>
-  `;
-
-  // --- Кнопки форматирования ---
-  bar.querySelectorAll('button[data-cmd]').forEach(btn => {
-    btn.addEventListener('mousedown', e => e.preventDefault());
-    btn.addEventListener('click', () => {
-      const cmd = btn.dataset.cmd;
-      if (cmd === 'createLink') {
-        const url = prompt('URL ссылки:', 'https://');
-        if (url) exec('createLink', url);
-      } else {
-        exec(cmd);
+  function makeDraggable(bar){
+    // Восстановление позиции
+    try {
+      const pos = JSON.parse(localStorage.getItem('orenti-fmtbar-pos') || 'null');
+      if (pos && typeof pos.x === 'number' && typeof pos.y === 'number') {
+        bar.style.left = pos.x + 'px';
+        bar.style.top = pos.y + 'px';
+        bar.style.bottom = 'auto';
       }
-    });
-  });
+    } catch(e){}
 
-  // --- Селект стиля абзаца ---
-  bar.querySelector('select[data-format]').addEventListener('change', function(){
-    exec('formatBlock', '<' + this.value + '>');
-  });
+    let drag = false, offX = 0, offY = 0;
+    const HANDLE = 36;
 
-  // --- Цвета ---
-  bar.querySelectorAll('input[type="color"]').forEach(inp => {
-    inp.addEventListener('input', function(){
-      exec(this.dataset.color, this.value);
-    });
-  });
-
-  // --- Пипетка ---
-  const dropBtn = bar.querySelector('#eyedropper');
-  if (window.EyeDropper) {
-    dropBtn.addEventListener('mousedown', e => e.preventDefault());
-    dropBtn.addEventListener('click', async () => {
-      try {
-        const result = await new window.EyeDropper().open();
-        exec('foreColor', result.sRGBHex);
-      } catch(e){}
-    });
-  } else {
-    dropBtn.style.display = 'none';
-  }
-
-  // --- Скрыть панель ---
-  bar.querySelector('.fmt-close').addEventListener('click', e => {
-    e.stopPropagation();
-    bar.remove();
-    localStorage.setItem('orenti-fmtbar-hidden', '1');
-  });
-
-  // --- Сохранение выделения ---
-  section.addEventListener('keyup', saveSelection);
-  section.addEventListener('mouseup', saveSelection);
-  section.addEventListener('input', updateToolbarState);
-
-  // --- Перетаскивание ---
-  makeDraggable(bar);
-
-  return bar;
-}
-
-/* Перетаскивание панели */
-function makeDraggable(bar){
-  // Восстанавливаем позицию из localStorage
-  try {
-    const savedPos = JSON.parse(localStorage.getItem('orenti-fmtbar-pos') || 'null');
-    if (savedPos && typeof savedPos.x === 'number' && typeof savedPos.y === 'number') {
-      bar.style.left = savedPos.x + 'px';
-      bar.style.top  = savedPos.y + 'px';
+    function start(clientX, clientY){
+      const r = bar.getBoundingClientRect();
+      if ((clientX - r.left) > HANDLE) return false;
+      drag = true;
+      bar.classList.add('dragging');
+      offX = clientX - r.left;
+      offY = clientY - r.top;
+      return true;
+    }
+    function move(clientX, clientY){
+      if (!drag) return;
+      let x = clientX - offX;
+      let y = clientY - offY;
+      const w = bar.offsetWidth, h = bar.offsetHeight;
+      x = Math.max(4, Math.min(window.innerWidth  - w - 4, x));
+      y = Math.max(4, Math.min(window.innerHeight - h - 4, y));
+      bar.style.left = x + 'px';
+      bar.style.top  = y + 'px';
       bar.style.bottom = 'auto';
     }
-  } catch(e){}
+    function end(){
+      if (!drag) return;
+      drag = false;
+      bar.classList.remove('dragging');
+      const r = bar.getBoundingClientRect();
+      localStorage.setItem('orenti-fmtbar-pos', JSON.stringify({ x:r.left, y:r.top }));
+    }
 
-  let drag = false;
-  let startX = 0, startY = 0, offsetX = 0, offsetY = 0;
+    bar.addEventListener('mousedown', e => {
+      if (e.target.closest('button, select, label, input')) return;
+      if (start(e.clientX, e.clientY)) e.preventDefault();
+    });
+    document.addEventListener('mousemove', e => move(e.clientX, e.clientY));
+    document.addEventListener('mouseup', end);
 
-  // Только при клике именно по ручке (::before — псевдоэлемент, но клик по нему
-  // ловится как клик по самому бару слева в области 32px)
-  const HANDLE_WIDTH = 32;
-
-  bar.addEventListener('mousedown', e => {
-    const rect = bar.getBoundingClientRect();
-    const inHandle = (e.clientX - rect.left) < HANDLE_WIDTH;
-    if (!inHandle) return;
-    if (e.target.closest('button, select, label, input')) return;
-
-    e.preventDefault();
-    drag = true;
-    bar.classList.add('dragging');
-
-    startX = e.clientX;
-    startY = e.clientY;
-    const r = bar.getBoundingClientRect();
-    offsetX = startX - r.left;
-    offsetY = startY - r.top;
-
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
-  });
-
-  // То же для тач-устройств
-  bar.addEventListener('touchstart', e => {
-    const rect = bar.getBoundingClientRect();
-    const touch = e.touches[0];
-    const inHandle = (touch.clientX - rect.left) < HANDLE_WIDTH;
-    if (!inHandle) return;
-    if (e.target.closest('button, select, label, input')) return;
-
-    drag = true;
-    bar.classList.add('dragging');
-
-    startX = touch.clientX;
-    startY = touch.clientY;
-    const r = bar.getBoundingClientRect();
-    offsetX = startX - r.left;
-    offsetY = startY - r.top;
-
-    document.addEventListener('touchmove', onTouchMove, { passive: false });
-    document.addEventListener('touchend', onTouchEnd);
-  }, { passive: true });
-
-  function onMove(e){
-    if (!drag) return;
-    moveTo(e.clientX, e.clientY);
+    bar.addEventListener('touchstart', e => {
+      if (e.target.closest('button, select, label, input')) return;
+      const t = e.touches[0];
+      if (start(t.clientX, t.clientY)) e.preventDefault();
+    }, { passive:false });
+    document.addEventListener('touchmove', e => {
+      if (!drag) return;
+      const t = e.touches[0];
+      e.preventDefault();
+      move(t.clientX, t.clientY);
+    }, { passive:false });
+    document.addEventListener('touchend', end);
   }
-  function onTouchMove(e){
-    if (!drag) return;
-    e.preventDefault();
-    const t = e.touches[0];
-    moveTo(t.clientX, t.clientY);
-  }
-  function moveTo(cx, cy){
-    let x = cx - offsetX;
-    let y = cy - offsetY;
 
-    // Не выпускаем за границы экрана
-    const w = bar.offsetWidth;
-    const h = bar.offsetHeight;
-    x = Math.max(4, Math.min(window.innerWidth  - w - 4, x));
-    y = Math.max(4, Math.min(window.innerHeight - h - 4, y));
+  function buildFormatToolbar(section){
+    const bar = document.createElement('div');
+    bar.className = 'fmt-toolbar';
+    bar.setAttribute('contenteditable','false');
+    bar.innerHTML = `
+      <button type="button" class="fmt-close" title="Скрыть панель">✕</button>
+      <button type="button" data-cmd="bold" title="Жирный (Ctrl+B)"><b>B</b></button>
+      <button type="button" data-cmd="italic" title="Курсив (Ctrl+I)"><i>I</i></button>
+      <button type="button" data-cmd="underline" title="Подчёркнутый (Ctrl+U)"><u>U</u></button>
+      <button type="button" data-cmd="strikeThrough" title="Зачёркнутый"><s>S</s></button>
+      <span class="sep"></span>
+      <select data-format title="Стиль абзаца">
+        <option value="p">Абзац</option>
+        <option value="h2">Заголовок 2</option>
+        <option value="h3">Заголовок 3</option>
+        <option value="blockquote">Цитата</option>
+      </select>
+      <span class="sep"></span>
+      <button type="button" data-cmd="insertUnorderedList" title="Маркированный список">• ≡</button>
+      <button type="button" data-cmd="insertOrderedList" title="Нумерованный список">1. ≡</button>
+      <span class="sep"></span>
+      <label title="Цвет текста">
+        <span class="swatch fg">A</span>
+        <input type="color" data-color="foreColor" value="#ff3b3b">
+      </label>
+      <label title="Цвет фона (маркер)">
+        <span class="swatch bg">A</span>
+        <input type="color" data-color="hiliteColor" value="#ffeb3b">
+      </label>
+      <button type="button" id="eyedropper" title="Пипетка — взять цвет с экрана">🎨</button>
+      <span class="sep"></span>
+      <button type="button" data-cmd="createLink" title="Вставить ссылку">🔗</button>
+      <button type="button" data-cmd="unlink" title="Убрать ссылку">⛓</button>
+      <button type="button" data-cmd="removeFormat" title="Очистить формат">✕A</button>
+    `;
 
-    bar.style.left = x + 'px';
-    bar.style.top  = y + 'px';
-    bar.style.bottom = 'auto';
-  }
-  function onUp(){
-    if (!drag) return;
-    drag = false;
-    bar.classList.remove('dragging');
-    document.removeEventListener('mousemove', onMove);
-    document.removeEventListener('mouseup', onUp);
+    bar.querySelectorAll('button[data-cmd]').forEach(btn => {
+      btn.addEventListener('mousedown', e => e.preventDefault());
+      btn.addEventListener('click', () => {
+        const cmd = btn.dataset.cmd;
+        if (cmd === 'createLink') {
+          const url = prompt('URL ссылки:', 'https://');
+          if (url) exec('createLink', url);
+        } else {
+          exec(cmd);
+        }
+      });
+    });
 
-    // Сохраняем позицию
-    const r = bar.getBoundingClientRect();
-    localStorage.setItem('orenti-fmtbar-pos', JSON.stringify({ x: r.left, y: r.top }));
-  }
-  function onTouchEnd(){
-    if (!drag) return;
-    drag = false;
-    bar.classList.remove('dragging');
-    document.removeEventListener('touchmove', onTouchMove);
-    document.removeEventListener('touchend', onTouchEnd);
-
-    const r = bar.getBoundingClientRect();
-    localStorage.setItem('orenti-fmtbar-pos', JSON.stringify({ x: r.left, y: r.top }));
-  }
-}
-
-    // Селект "стиль абзаца"
     bar.querySelector('select[data-format]').addEventListener('change', function(){
       exec('formatBlock', '<' + this.value + '>');
     });
 
-    // Цвет текста / фона
     bar.querySelectorAll('input[type="color"]').forEach(inp => {
       inp.addEventListener('input', function(){
         exec(this.dataset.color, this.value);
       });
     });
 
-    // Пипетка
     const dropBtn = bar.querySelector('#eyedropper');
     if (window.EyeDropper) {
       dropBtn.addEventListener('mousedown', e => e.preventDefault());
@@ -374,11 +284,16 @@ function makeDraggable(bar){
       dropBtn.style.display = 'none';
     }
 
-    // Сохраняем выделение при вводе текста и кликах в области
+    bar.querySelector('.fmt-close').addEventListener('click', () => {
+      bar.remove();
+      localStorage.setItem('orenti-fmtbar-hidden', '1');
+    });
+
     section.addEventListener('keyup', saveSelection);
     section.addEventListener('mouseup', saveSelection);
     section.addEventListener('input', updateToolbarState);
 
+    makeDraggable(bar);
     return bar;
   }
 
@@ -396,7 +311,7 @@ function makeDraggable(bar){
       const key = pageKey(id);
       const originalContent = getCleanContent(section);
 
-      section.querySelectorAll('.section-tools, .fmt-toolbar').forEach(el => el.remove());
+      section.querySelectorAll('.section-tools').forEach(el => el.remove());
 
       const tools = document.createElement('div');
       tools.className = 'section-tools';
@@ -404,14 +319,15 @@ function makeDraggable(bar){
       section.appendChild(tools);
 
       let backup = '';
-      let fmtBar = null;
+
+      function removeToolbar(){
+        document.querySelectorAll('.fmt-toolbar').forEach(el => el.remove());
+      }
 
       function renderNormal(){
         section.contentEditable = 'false';
         section.classList.remove('editing');
-        // Убираем все панели форматирования с экрана
-document.querySelectorAll('.fmt-toolbar').forEach(el => el.remove());
-fmtBar = null;
+        removeToolbar();
         tools.innerHTML =
             '<button type="button" class="edit">✏️ Редактировать</button>'
           + (merged[key] ? ' <button type="button" class="reset">🗑 Сбросить</button>' : '');
@@ -431,22 +347,18 @@ fmtBar = null;
         tools.querySelector('.cancel').addEventListener('click', cancelEdit);
         tools.querySelector('.reset').addEventListener('click', resetEdit);
 
-       // Панель уже создана?
-let exists = document.querySelector('.fmt-toolbar');
-if (!exists) {
-  const hidden = localStorage.getItem('orenti-fmtbar-hidden') === '1';
-  if (!hidden) {
-    fmtBar = buildFormatToolbar(section);
-    document.body.appendChild(fmtBar);
-  }
-}
+        // Одна панель на всю страницу
+        removeToolbar();
+        if (localStorage.getItem('orenti-fmtbar-hidden') !== '1') {
+          const bar = buildFormatToolbar(section);
+          document.body.appendChild(bar);
+        }
       }
 
       function startEdit(){
         backup = getCleanContent(section);
         renderEditing();
         section.focus({ preventScroll:true });
-        // Первый диапазон = начало секции
         const sel = window.getSelection();
         const range = document.createRange();
         range.selectNodeContents(section);
@@ -457,10 +369,8 @@ if (!exists) {
       }
 
       async function saveEdit(){
-        // Забираем контент ДО выхода из редактирования (пока панель ещё в DOM - не мешает)
         const newContent = getCleanContent(section);
         const candidate  = { ...merged, [key]: newContent };
-
         tools.innerHTML = '<span class="saved-msg">⏳ Сохраняю...</span>';
 
         try {
