@@ -1,12 +1,12 @@
 /* ======================================================
-   ORENTI — редактор с WYSIWYG и синхронизацией
+   ORENTI — редактор с WYSIWYG, sync и добавлением разделов
    ====================================================== */
 (function(){
 
   // ============== НАСТРОЙКИ ==============
   const CONFIG = {
-    loginHash:    "9313181f777104d96a4034374e26f0a6fc2af94a1b6d3f9db97067af6f85b11d",
-    passwordHash: "94c69adfda279ab3f7c3dd90a9f59e4f06471f2344719c93f5e96c314af91fb6",
+    loginHash:    "ВСТАВЬ_ХЕШ_ЛОГИНА",
+    passwordHash: "ВСТАВЬ_ХЕШ_ПАРОЛЯ",
     sessionHours: 72,
     showWhenLocked: false
   };
@@ -20,6 +20,8 @@
     const file = (location.pathname.split('/').pop() || 'index.html').split('?')[0];
     return file.replace(/\.html?$/i, '') || 'index';
   })();
+  const META_KEY = '__sections__:' + PAGE_SLUG;
+
   function pageKey(id){ return PAGE_SLUG + ':' + id; }
 
   // ---------- утилиты ----------
@@ -30,12 +32,46 @@
   function saveSession(){ localStorage.setItem(AUTH_KEY, String(Date.now() + CONFIG.sessionHours*3600*1000)); }
   function clearSession(){ localStorage.removeItem(AUTH_KEY); localStorage.removeItem(TOKEN_KEY); }
   function isSessionValid(){ const v = Number(localStorage.getItem(AUTH_KEY)); return v && v > Date.now(); }
+  function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
-  // ---------- Контент с сервера ----------
+  // ---------- Контент ----------
   function getCleanContent(section){
     const c = section.cloneNode(true);
     c.querySelectorAll('.section-tools').forEach(el => el.remove());
     return c.innerHTML;
+  }
+
+  function findSectionsContainer(){
+    const first = document.querySelector('section.block');
+    return first ? first.parentElement : null;
+  }
+
+  function getTOC(){ return document.querySelector('.toc'); }
+
+  // Создаём кастомные секции, которых ещё нет в DOM
+  function renderCustomSections(serverContent){
+    const list = serverContent[META_KEY] || [];
+    const container = findSectionsContainer();
+    if (!container) return;
+    const toc = getTOC();
+
+    list.forEach(item => {
+      if (document.getElementById(item.id)) return;
+      const section = document.createElement('section');
+      section.className = 'block';
+      section.id = item.id;
+      section.dataset.custom = '1';
+      section.innerHTML = '<h2>' + escapeHtml(item.title || 'Раздел') + '</h2><p></p>';
+      container.appendChild(section);
+
+      if (toc) {
+        const a = document.createElement('a');
+        a.href = '#' + item.id;
+        a.dataset.customNav = item.id;
+        a.textContent = item.title || 'Раздел';
+        toc.appendChild(a);
+      }
+    });
   }
 
   function applyContent(serverContent){
@@ -48,12 +84,38 @@
     });
   }
 
+  // Обновляем названия кастомных секций в TOC по актуальному H2
+  function syncTOC(){
+    document.querySelectorAll('.toc a[data-custom-nav]').forEach(a => {
+      const id = a.dataset.customNav;
+      const sec = document.getElementById(id);
+      if (!sec) return;
+      const h = sec.querySelector('h2');
+      if (h && h.textContent.trim()) a.textContent = h.textContent.trim();
+    });
+  }
+
   async function loadServerContent(){
     try {
       const res = await fetch(API_URL + '?t=' + Date.now(), { cache:'no-store' });
       if (!res.ok) return {};
       return await res.json();
     } catch(e){ return {}; }
+  }
+
+  async function postContent(obj){
+    const res = await fetch(API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + (localStorage.getItem(TOKEN_KEY) || '')
+      },
+      body: JSON.stringify(obj)
+    });
+    if (!res.ok) {
+      const t = await res.text().catch(() => '');
+      throw new Error('HTTP ' + res.status + ' ' + t);
+    }
   }
 
   // ---------- Авторизация ----------
@@ -117,7 +179,7 @@
   }
 
   // =====================================================
-  // WYSIWYG-панель (плавающая, перетаскиваемая)
+  // WYSIWYG-панель (без крестика)
   // =====================================================
   let savedRange = null;
 
@@ -125,21 +187,18 @@
     const sel = window.getSelection();
     if (sel && sel.rangeCount > 0) savedRange = sel.getRangeAt(0).cloneRange();
   }
-
   function restoreSelection(){
     if (!savedRange) return;
     const sel = window.getSelection();
     sel.removeAllRanges();
     sel.addRange(savedRange);
   }
-
   function exec(cmd, val){
     restoreSelection();
     document.execCommand(cmd, false, val ?? null);
     saveSelection();
     updateToolbarState();
   }
-
   function updateToolbarState(){
     document.querySelectorAll('.fmt-toolbar button[data-cmd]').forEach(btn => {
       try {
@@ -150,12 +209,11 @@
   }
 
   function makeDraggable(bar){
-    // Восстановление позиции
     try {
       const pos = JSON.parse(localStorage.getItem('orenti-fmtbar-pos') || 'null');
       if (pos && typeof pos.x === 'number' && typeof pos.y === 'number') {
         bar.style.left = pos.x + 'px';
-        bar.style.top = pos.y + 'px';
+        bar.style.top  = pos.y + 'px';
         bar.style.bottom = 'auto';
       }
     } catch(e){}
@@ -163,19 +221,18 @@
     let drag = false, offX = 0, offY = 0;
     const HANDLE = 36;
 
-    function start(clientX, clientY){
+    function start(cx, cy){
       const r = bar.getBoundingClientRect();
-      if ((clientX - r.left) > HANDLE) return false;
+      if ((cx - r.left) > HANDLE) return false;
       drag = true;
       bar.classList.add('dragging');
-      offX = clientX - r.left;
-      offY = clientY - r.top;
+      offX = cx - r.left;
+      offY = cy - r.top;
       return true;
     }
-    function move(clientX, clientY){
+    function move(cx, cy){
       if (!drag) return;
-      let x = clientX - offX;
-      let y = clientY - offY;
+      let x = cx - offX, y = cy - offY;
       const w = bar.offsetWidth, h = bar.offsetHeight;
       x = Math.max(4, Math.min(window.innerWidth  - w - 4, x));
       y = Math.max(4, Math.min(window.innerHeight - h - 4, y));
@@ -217,7 +274,6 @@
     bar.className = 'fmt-toolbar';
     bar.setAttribute('contenteditable','false');
     bar.innerHTML = `
-      <button type="button" class="fmt-close" title="Скрыть панель">✕</button>
       <button type="button" data-cmd="bold" title="Жирный (Ctrl+B)"><b>B</b></button>
       <button type="button" data-cmd="italic" title="Курсив (Ctrl+I)"><i>I</i></button>
       <button type="button" data-cmd="underline" title="Подчёркнутый (Ctrl+U)"><u>U</u></button>
@@ -241,7 +297,7 @@
         <span class="swatch bg">A</span>
         <input type="color" data-color="hiliteColor" value="#ffeb3b">
       </label>
-      <button type="button" id="eyedropper" title="Пипетка — взять цвет с экрана">🎨</button>
+      <button type="button" id="eyedropper" title="Пипетка">🎨</button>
       <span class="sep"></span>
       <button type="button" data-cmd="createLink" title="Вставить ссылку">🔗</button>
       <button type="button" data-cmd="unlink" title="Убрать ссылку">⛓</button>
@@ -255,9 +311,7 @@
         if (cmd === 'createLink') {
           const url = prompt('URL ссылки:', 'https://');
           if (url) exec('createLink', url);
-        } else {
-          exec(cmd);
-        }
+        } else exec(cmd);
       });
     });
 
@@ -276,18 +330,11 @@
       dropBtn.addEventListener('mousedown', e => e.preventDefault());
       dropBtn.addEventListener('click', async () => {
         try {
-          const result = await new window.EyeDropper().open();
-          exec('foreColor', result.sRGBHex);
+          const r = await new window.EyeDropper().open();
+          exec('foreColor', r.sRGBHex);
         } catch(e){}
       });
-    } else {
-      dropBtn.style.display = 'none';
-    }
-
-    bar.querySelector('.fmt-close').addEventListener('click', () => {
-      bar.remove();
-      localStorage.setItem('orenti-fmtbar-hidden', '1');
-    });
+    } else dropBtn.style.display = 'none';
 
     section.addEventListener('keyup', saveSelection);
     section.addEventListener('mouseup', saveSelection);
@@ -310,6 +357,7 @@
       const id = section.id || ('sec-' + idx);
       const key = pageKey(id);
       const originalContent = getCleanContent(section);
+      const isCustom = section.dataset.custom === '1';
 
       section.querySelectorAll('.section-tools').forEach(el => el.remove());
 
@@ -330,10 +378,13 @@
         removeToolbar();
         tools.innerHTML =
             '<button type="button" class="edit">✏️ Редактировать</button>'
-          + (merged[key] ? ' <button type="button" class="reset">🗑 Сбросить</button>' : '');
+          + (merged[key] ? ' <button type="button" class="reset">🗑 Сбросить</button>' : '')
+          + (isCustom    ? ' <button type="button" class="delete">🗑 Удалить раздел</button>' : '');
         tools.querySelector('.edit').addEventListener('click', startEdit);
         const r = tools.querySelector('.reset');
         if (r) r.addEventListener('click', resetEdit);
+        const d = tools.querySelector('.delete');
+        if (d) d.addEventListener('click', () => deleteSection(id));
       }
 
       function renderEditing(){
@@ -342,17 +393,17 @@
         tools.innerHTML =
             '<button type="button" class="save">💾 Сохранить</button>'
           + '<button type="button" class="cancel">↺ Отмена</button>'
-          + '<button type="button" class="reset">🗑 Сбросить</button>';
+          + '<button type="button" class="reset">🗑 Сбросить</button>'
+          + (isCustom ? ' <button type="button" class="delete">🗑 Удалить раздел</button>' : '');
         tools.querySelector('.save').addEventListener('click', saveEdit);
         tools.querySelector('.cancel').addEventListener('click', cancelEdit);
         tools.querySelector('.reset').addEventListener('click', resetEdit);
+        const d = tools.querySelector('.delete');
+        if (d) d.addEventListener('click', () => deleteSection(id));
 
-        // Одна панель на всю страницу
         removeToolbar();
-        if (localStorage.getItem('orenti-fmtbar-hidden') !== '1') {
-          const bar = buildFormatToolbar(section);
-          document.body.appendChild(bar);
-        }
+        const bar = buildFormatToolbar(section);
+        document.body.appendChild(bar);
       }
 
       function startEdit(){
@@ -374,21 +425,11 @@
         tools.innerHTML = '<span class="saved-msg">⏳ Сохраняю...</span>';
 
         try {
-          const res = await fetch(API_URL, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': 'Bearer ' + (localStorage.getItem(TOKEN_KEY) || '')
-            },
-            body: JSON.stringify(candidate)
-          });
-          if (!res.ok) {
-            const t = await res.text().catch(() => '');
-            throw new Error('HTTP ' + res.status + ' ' + t);
-          }
+          await postContent(candidate);
           merged[key] = newContent;
           localStorage.setItem(cacheKey, JSON.stringify(merged));
           renderNormal();
+          syncTOC();
           flash('✓ Сохранено для всех');
         } catch(e) {
           console.error('Save failed:', e);
@@ -396,10 +437,13 @@
               '<button type="button" class="save">💾 Сохранить</button>'
             + '<button type="button" class="cancel">↺ Отмена</button>'
             + '<button type="button" class="reset">🗑 Сбросить</button>'
+            + (isCustom ? ' <button type="button" class="delete">🗑 Удалить раздел</button>' : '')
             + '<span class="saved-msg" style="background:#ff3b3b;color:#fff">⚠ ' + e.message + '</span>';
           tools.querySelector('.save').addEventListener('click', saveEdit);
           tools.querySelector('.cancel').addEventListener('click', cancelEdit);
           tools.querySelector('.reset').addEventListener('click', resetEdit);
+          const d = tools.querySelector('.delete');
+          if (d) d.addEventListener('click', () => deleteSection(id));
         }
       }
 
@@ -413,14 +457,7 @@
         if (!confirm('Сбросить изменения этого раздела?')) return;
         delete merged[key];
         try {
-          await fetch(API_URL, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': 'Bearer ' + (localStorage.getItem(TOKEN_KEY) || '')
-            },
-            body: JSON.stringify(merged)
-          });
+          await postContent(merged);
           localStorage.setItem(cacheKey, JSON.stringify(merged));
         } catch(e) {}
         section.innerHTML = originalContent;
@@ -445,18 +482,118 @@
     });
   }
 
-  // ---------- Запуск ----------
+  // =====================================================
+  // Добавление / удаление разделов (только админ)
+  // =====================================================
+  function showAddButton(){
+    const toc = getTOC();
+    if (!toc) return;
+    if (toc.querySelector('.toc-add')) return;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'toc-add';
+    btn.textContent = '➕ Добавить раздел';
+    btn.addEventListener('click', addSection);
+    toc.appendChild(btn);
+  }
+
+  async function addSection(){
+    const title = prompt('Название нового раздела:', 'Новый раздел');
+    if (title === null) return;
+    const cleanTitle = (title || 'Новый раздел').trim() || 'Новый раздел';
+
+    const id = 'custom-' + Date.now().toString(36);
+
+    const container = findSectionsContainer();
+    if (!container) { alert('Не найден контейнер разделов'); return; }
+
+    // 1) Создаём секцию в DOM
+    const section = document.createElement('section');
+    section.className = 'block';
+    section.id = id;
+    section.dataset.custom = '1';
+    section.innerHTML = '<h2>' + escapeHtml(cleanTitle) + '</h2>'
+      + '<p>Нажми «✏️ Редактировать», чтобы заполнить этот раздел.</p>';
+    container.appendChild(section);
+
+    // 2) Добавляем в TOC
+    const toc = getTOC();
+    if (toc) {
+      const a = document.createElement('a');
+      a.href = '#' + id;
+      a.dataset.customNav = id;
+      a.textContent = cleanTitle;
+      const addBtn = toc.querySelector('.toc-add');
+      if (addBtn) toc.insertBefore(a, addBtn);
+      else toc.appendChild(a);
+    }
+
+    // 3) Сохраняем в облако
+    try {
+      const serverContent = await loadServerContent();
+      const list = serverContent[META_KEY] || [];
+      list.push({ id, title: cleanTitle });
+      serverContent[META_KEY] = list;
+      serverContent[pageKey(id)] = section.innerHTML;
+      await postContent(serverContent);
+    } catch(e) {
+      alert('Не удалось сохранить раздел: ' + e.message);
+      location.reload();
+      return;
+    }
+
+    // 4) Перезагружаем страницу — редактор подхватит новую секцию
+    location.reload();
+  }
+
+  async function deleteSection(id){
+    if (!confirm('Удалить этот раздел? Действие необратимо.')) return;
+
+    try {
+      const serverContent = await loadServerContent();
+      const list = (serverContent[META_KEY] || []).filter(x => x.id !== id);
+      serverContent[META_KEY] = list;
+      delete serverContent[pageKey(id)];
+      await postContent(serverContent);
+
+      // Очищаем локальный кэш от этого ключа
+      ['orenti-edit-cache:moderators','orenti-edit-cache:ga-zga','orenti-edit-cache:support','orenti-edit-cache:index','orenti-edit-cache:helpers'].forEach(k => {
+        try {
+          const c = JSON.parse(localStorage.getItem(k) || '{}');
+          delete c[pageKey(id)];
+          localStorage.setItem(k, JSON.stringify(c));
+        } catch(e){}
+      });
+    } catch(e) {
+      alert('Не удалось удалить: ' + e.message);
+      return;
+    }
+
+    location.reload();
+  }
+
+  // =====================================================
+  // Запуск
+  // =====================================================
   (async function init(){
     const serverContent = await loadServerContent();
+
+    // 1) Сначала создаём кастомные секции (если их ещё нет в DOM)
+    renderCustomSections(serverContent);
+
+    // 2) Затем применяем контент
     applyContent(serverContent);
+
+    // 3) Обновляем названия кастомных секций в TOC
+    syncTOC();
 
     const authorized = isSessionValid();
     if (authorized) {
       attachEditors(serverContent);
+      showAddButton();
       showLockButton(true);
     } else {
       showLockButton(false);
-      if (CONFIG.showWhenLocked) attachEditors(serverContent);
     }
   })();
 
