@@ -1,21 +1,23 @@
 /* ======================================================
    ORENTI — редактирование с синхронизацией через Vercel Blob
+   • Контент с сервера применяется для ВСЕХ посетителей
+   • Кнопки редактирования видны только после логина
    ====================================================== */
 (function(){
 
   // ============== НАСТРОЙКИ ==============
   const CONFIG = {
-    // SHA-256 хеш логина и пароля (см. инструкцию)
-    loginHash:    "9313181f777104d96a4034374e26f0a6fc2af94a1b6d3f9db97067af6f85b11d",
-    passwordHash: "94c69adfda279ab3f7c3dd90a9f59e4f06471f2344719c93f5e96c314af91fb6",
+    loginHash:    "ВСТАВЬ_ХЕШ_ЛОГИНА",
+    passwordHash: "ВСТАВЬ_ХЕШ_ПАРОЛЯ",
     sessionHours: 72,
     showWhenLocked: false
   };
   // ============ / НАСТРОЙКИ ==============
 
-  const AUTH_KEY = 'orenti-auth-until';
+  const AUTH_KEY  = 'orenti-auth-until';
   const TOKEN_KEY = 'orenti-edit-token';
-  const PAGE_KEY = 'orenti-edit-cache:' + location.pathname;
+  const PAGE_KEY  = 'orenti-edit-cache:' + location.pathname;
+  const API_URL   = '/api/content';
 
   // ---------- утилиты ----------
   async function sha256(str){
@@ -34,7 +36,43 @@
     return v && v > Date.now();
   }
 
-  // ---------- модальное окно входа ----------
+  // =====================================================
+  // ЧАСТЬ 1. Применение контента с сервера — для ВСЕХ
+  // =====================================================
+  function getCleanContent(section){
+    const c = section.cloneNode(true);
+    c.querySelectorAll('.section-tools').forEach(el => el.remove());
+    return c.innerHTML;
+  }
+
+  function applyContent(serverContent){
+    document.querySelectorAll('section.block').forEach(section => {
+      if (!section.id) return;
+      const html = serverContent[section.id];
+      if (html == null) return;
+      // Убираем возможную панель инструментов перед заменой
+      section.querySelectorAll('.section-tools').forEach(el => el.remove());
+      section.innerHTML = html;
+    });
+  }
+
+  async function loadServerContent(){
+    try {
+      const res = await fetch(API_URL, { cache: 'no-store' });
+      if (!res.ok) {
+        console.warn('Не удалось получить контент, статус:', res.status);
+        return {};
+      }
+      return await res.json();
+    } catch(e) {
+      console.warn('Ошибка загрузки контента:', e);
+      return {};
+    }
+  }
+
+  // =====================================================
+  // ЧАСТЬ 2. Редактор — только для админа
+  // =====================================================
   function showLoginModal(){
     return new Promise(resolve => {
       const overlay = document.createElement('div');
@@ -54,17 +92,17 @@
       overlay.appendChild(box);
       document.body.appendChild(overlay);
       const loginEl = box.querySelector('#__login');
-      const pwdEl = box.querySelector('#__pwd');
+      const pwdEl   = box.querySelector('#__pwd');
       loginEl.focus();
       const close = (val) => { overlay.remove(); resolve(val); };
       box.querySelector('#__cancel').onclick = () => close(null);
-      box.querySelector('#__ok').onclick = () => close({ l: loginEl.value, p: pwdEl.value });
+      box.querySelector('#__ok').onclick     = () => close({ l: loginEl.value, p: pwdEl.value });
       const onKey = (e) => {
-        if (e.key === 'Enter') close({ l: loginEl.value, p: pwdEl.value });
+        if (e.key === 'Enter')  close({ l: loginEl.value, p: pwdEl.value });
         if (e.key === 'Escape') close(null);
       };
       loginEl.onkeydown = onKey;
-      pwdEl.onkeydown = onKey;
+      pwdEl.onkeydown   = onKey;
     });
   }
 
@@ -74,7 +112,7 @@
     const [lh, ph] = await Promise.all([sha256(creds.l), sha256(creds.p)]);
     if (lh === CONFIG.loginHash && ph === CONFIG.passwordHash) {
       saveSession();
-      localStorage.setItem(TOKEN_KEY, creds.p); // Сохраняем пароль для API
+      localStorage.setItem(TOKEN_KEY, creds.p);
       location.reload();
     } else {
       alert('Неверный логин или пароль');
@@ -82,7 +120,6 @@
     }
   }
 
-  // ---------- кнопка-замок ----------
   function showLockButton(authorized){
     const btn = document.createElement('button');
     btn.id = 'auth-btn';
@@ -101,40 +138,19 @@
     document.body.appendChild(btn);
   }
 
-  // ---------- редактор разделов (с синхронизацией) ----------
-  async function setupEditors(){
-    // 1. Загружаем контент с сервера
-    let serverContent = {};
-    try {
-      const res = await fetch('/api/content');
-      if (res.ok) serverContent = await res.json();
-      else console.warn('Не удалось загрузить контент, статус:', res.status);
-    } catch(e) {
-      console.warn('Ошибка загрузки контента с сервера:', e);
-    }
-
-    // 2. Локальные правки (кэш)
-    let localCache = {};
-    try { localCache = JSON.parse(localStorage.getItem(PAGE_KEY) || '{}'); } catch(e){}
-
-    // Приоритет: сервер > локальный кэш
-    const merged = { ...localCache, ...serverContent };
-
-    function getContent(section){
-      const c = section.cloneNode(true);
-      c.querySelectorAll('.section-tools').forEach(el => el.remove());
-      return c.innerHTML;
-    }
-    function setContent(section, tools, html){
-      tools.remove();
-      section.innerHTML = html;
-      section.appendChild(tools);
-    }
+  // ---------- редактор: добавляет кнопки и умеет сохранять ----------
+  function attachEditors(serverContent){
+    let cache = {};
+    try { cache = JSON.parse(localStorage.getItem(PAGE_KEY) || '{}'); } catch(e){}
+    const merged = { ...cache, ...serverContent };
 
     document.querySelectorAll('section.block').forEach(section => {
       if (!section.id) section.id = 'sec-' + Math.random().toString(36).slice(2,8);
       const id = section.id;
-      const originalContent = getContent(section);
+      const originalContent = getCleanContent(section);
+
+      // Убираем панель, если она там случайно уже есть
+      section.querySelectorAll('.section-tools').forEach(el => el.remove());
 
       const tools = document.createElement('div');
       tools.className = 'section-tools';
@@ -146,63 +162,99 @@
       function renderNormal(){
         section.contentEditable = 'false';
         section.classList.remove('editing');
-        tools.innerHTML = `<button type="button" class="edit">✏️ Редактировать</button>` + (merged[id] ? ' <button type="button" class="reset">🗑 Сбросить</button>' : '');
+        tools.innerHTML =
+            '<button type="button" class="edit">✏️ Редактировать</button>'
+          + (merged[id] ? ' <button type="button" class="reset">🗑 Сбросить</button>' : '');
         tools.querySelector('.edit').addEventListener('click', startEdit);
         const r = tools.querySelector('.reset');
         if (r) r.addEventListener('click', resetEdit);
       }
+
       function renderEditing(){
         section.contentEditable = 'true';
         section.classList.add('editing');
-        tools.innerHTML = `
-          <button type="button" class="save">💾 Сохранить</button>
-          <button type="button" class="cancel">↺ Отмена</button>
-          <button type="button" class="reset">🗑 Сбросить</button>
-        `;
+        tools.innerHTML =
+            '<button type="button" class="save">💾 Сохранить</button>'
+          + '<button type="button" class="cancel">↺ Отмена</button>'
+          + '<button type="button" class="reset">🗑 Сбросить</button>';
         tools.querySelector('.save').addEventListener('click', saveEdit);
         tools.querySelector('.cancel').addEventListener('click', cancelEdit);
         tools.querySelector('.reset').addEventListener('click', resetEdit);
       }
-      function startEdit(){ backup = getContent(section); renderEditing(); section.focus({preventScroll:true}); }
+
+      function startEdit(){
+        backup = getCleanContent(section);
+        renderEditing();
+        section.focus({ preventScroll: true });
+      }
 
       async function saveEdit(){
-        section.contentEditable = 'false';
-        section.classList.remove('editing');
-        const newContent = getContent(section);
-        merged[id] = newContent;
+        const newContent = getCleanContent(section);
+        const candidate  = { ...merged, [id]: newContent };
+
         tools.innerHTML = '<span class="saved-msg">⏳ Сохраняю...</span>';
+
         try {
-          const res = await fetch('/api/content', {
+          const res = await fetch(API_URL, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (localStorage.getItem(TOKEN_KEY) || '') },
-            body: JSON.stringify(merged)
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer ' + (localStorage.getItem(TOKEN_KEY) || '')
+            },
+            body: JSON.stringify(candidate)
           });
-          if (!res.ok) throw new Error('HTTP ' + res.status);
+
+          if (!res.ok) {
+            const t = await res.text().catch(() => '');
+            throw new Error('HTTP ' + res.status + ' ' + t);
+          }
+
+          merged[id] = newContent;
           localStorage.setItem(PAGE_KEY, JSON.stringify(merged));
+
+          section.contentEditable = 'false';
+          section.classList.remove('editing');
           renderNormal();
           flash('✓ Сохранено для всех');
         } catch(e) {
-          console.error(e);
-          renderNormal();
-          flash('⚠ Ошибка: ' + e.message);
+          console.error('Save failed:', e);
+          tools.innerHTML =
+              '<button type="button" class="save">💾 Сохранить</button>'
+            + '<button type="button" class="cancel">↺ Отмена</button>'
+            + '<button type="button" class="reset">🗑 Сбросить</button>'
+            + '<span class="saved-msg" style="background:#ff6b7a;color:#fff">⚠ ' + e.message + '</span>';
+          tools.querySelector('.save').addEventListener('click', saveEdit);
+          tools.querySelector('.cancel').addEventListener('click', cancelEdit);
+          tools.querySelector('.reset').addEventListener('click', resetEdit);
         }
       }
-      function cancelEdit(){ setContent(section, tools, backup); renderNormal(); }
+
+      function cancelEdit(){
+        section.innerHTML = backup;
+        section.appendChild(tools);
+        renderNormal();
+      }
+
       async function resetEdit(){
         if (!confirm('Сбросить изменения этого раздела?')) return;
         delete merged[id];
         try {
-          await fetch('/api/content', {
+          await fetch(API_URL, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (localStorage.getItem(TOKEN_KEY) || '') },
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer ' + (localStorage.getItem(TOKEN_KEY) || '')
+            },
             body: JSON.stringify(merged)
           });
           localStorage.setItem(PAGE_KEY, JSON.stringify(merged));
         } catch(e) {}
-        setContent(section, tools, originalContent);
+        section.innerHTML = originalContent;
+        section.appendChild(tools);
         renderNormal();
         flash('↺ Сброшено');
       }
+
       function flash(text){
         const m = document.createElement('span');
         m.className = 'saved-msg';
@@ -211,20 +263,30 @@
         setTimeout(() => m.remove(), 2000);
       }
 
-      if (merged[id]) setContent(section, tools, merged[id]);
+      if (merged[id]) {
+        section.innerHTML = merged[id];
+        section.appendChild(tools);
+      }
       renderNormal();
     });
   }
 
-  // ---------- запуск ----------
+  // =====================================================
+  // Запуск
+  // =====================================================
   (async function init(){
+    // 1) Всегда подтягиваем контент с сервера и применяем — для всех
+    const serverContent = await loadServerContent();
+    applyContent(serverContent);
+
+    // 2) Если админ — добавляем редактор
     const authorized = isSessionValid();
     if (authorized) {
-      await setupEditors();
+      attachEditors(serverContent);
       showLockButton(true);
     } else {
       showLockButton(false);
-      if (CONFIG.showWhenLocked) await setupEditors();
+      if (CONFIG.showWhenLocked) attachEditors(serverContent);
     }
   })();
 
