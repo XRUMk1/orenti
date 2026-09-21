@@ -1,86 +1,59 @@
 /* ======================================================
-   ORENTI — редактирование с синхронизацией через Vercel Blob
-   • Ключи уникальны: "имя_страницы:id_секции"
-   • Контент с сервера применяется для ВСЕХ посетителей
-   • Кнопки редактирования видны только после логина
+   ORENTI — редактирование с WYSIWYG + синхронизацией
    ====================================================== */
 (function(){
 
-  // ============== НАСТРОЙКИ ==============
   const CONFIG = {
-    loginHash:    "9313181f777104d96a4034374e26f0a6fc2af94a1b6d3f9db97067af6f85b11d",
-    passwordHash: "94c69adfda279ab3f7c3dd90a9f59e4f06471f2344719c93f5e96c314af91fb6",
+    loginHash:    "ВСТАВЬ_ХЕШ_ЛОГИНА",
+    passwordHash: "ВСТАВЬ_ХЕШ_ПАРОЛЯ",
     sessionHours: 72,
     showWhenLocked: false
   };
-  // ============ / НАСТРОЙКИ ==============
 
   const AUTH_KEY  = 'orenti-auth-until';
   const TOKEN_KEY = 'orenti-edit-token';
   const API_URL   = '/api/content';
 
-  // Уникальный слаг страницы: "moderators", "ga-zga", "support", "index"
   const PAGE_SLUG = (function(){
     const file = (location.pathname.split('/').pop() || 'index.html').split('?')[0];
     return file.replace(/\.html?$/i, '') || 'index';
   })();
-
   function pageKey(id){ return PAGE_SLUG + ':' + id; }
 
-  // ---------- утилиты ----------
   async function sha256(str){
     const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
     return [...new Uint8Array(buf)].map(x => x.toString(16).padStart(2,'0')).join('');
   }
-  function saveSession(){
-    localStorage.setItem(AUTH_KEY, String(Date.now() + CONFIG.sessionHours * 3600 * 1000));
-  }
-  function clearSession(){
-    localStorage.removeItem(AUTH_KEY);
-    localStorage.removeItem(TOKEN_KEY);
-  }
-  function isSessionValid(){
-    const v = Number(localStorage.getItem(AUTH_KEY));
-    return v && v > Date.now();
-  }
+  function saveSession(){ localStorage.setItem(AUTH_KEY, String(Date.now() + CONFIG.sessionHours*3600*1000)); }
+  function clearSession(){ localStorage.removeItem(AUTH_KEY); localStorage.removeItem(TOKEN_KEY); }
+  function isSessionValid(){ const v = Number(localStorage.getItem(AUTH_KEY)); return v && v > Date.now(); }
 
-  // =====================================================
-  // ЧАСТЬ 1. Применение контента с сервера — для ВСЕХ
-  // =====================================================
+  // ---------- Контент с сервера ----------
   function getCleanContent(section){
     const c = section.cloneNode(true);
-    c.querySelectorAll('.section-tools').forEach(el => el.remove());
+    c.querySelectorAll('.section-tools, .fmt-toolbar').forEach(el => el.remove());
     return c.innerHTML;
   }
 
   function applyContent(serverContent){
     document.querySelectorAll('section.block').forEach((section, idx) => {
       const id = section.id || ('sec-' + idx);
-      const key = pageKey(id);
-      const html = serverContent[key];
+      const html = serverContent[pageKey(id)];
       if (html == null) return;
-      section.querySelectorAll('.section-tools').forEach(el => el.remove());
+      section.querySelectorAll('.section-tools, .fmt-toolbar').forEach(el => el.remove());
       section.innerHTML = html;
     });
   }
 
   async function loadServerContent(){
     try {
-      const res = await fetch(API_URL + '?t=' + Date.now(), { cache: 'no-store' });
-      if (!res.ok) {
-        console.warn('Не удалось получить контент, статус:', res.status);
-        return {};
-      }
+      const res = await fetch(API_URL + '?t=' + Date.now(), { cache:'no-store' });
+      if (!res.ok) return {};
       return await res.json();
-    } catch(e) {
-      console.warn('Ошибка загрузки контента:', e);
-      return {};
-    }
+    } catch(e){ return {}; }
   }
 
-  // =====================================================
-  // ЧАСТЬ 2. Авторизация
-  // =====================================================
+  // ---------- Авторизация ----------
   function showLoginModal(){
     return new Promise(resolve => {
       const overlay = document.createElement('div');
@@ -99,18 +72,17 @@
       `;
       overlay.appendChild(box);
       document.body.appendChild(overlay);
-      const loginEl = box.querySelector('#__login');
-      const pwdEl   = box.querySelector('#__pwd');
-      loginEl.focus();
-      const close = (val) => { overlay.remove(); resolve(val); };
+      const l = box.querySelector('#__login');
+      const p = box.querySelector('#__pwd');
+      l.focus();
+      const close = v => { overlay.remove(); resolve(v); };
       box.querySelector('#__cancel').onclick = () => close(null);
-      box.querySelector('#__ok').onclick     = () => close({ l: loginEl.value, p: pwdEl.value });
-      const onKey = (e) => {
-        if (e.key === 'Enter')  close({ l: loginEl.value, p: pwdEl.value });
+      box.querySelector('#__ok').onclick = () => close({ l:l.value, p:p.value });
+      const k = e => {
+        if (e.key === 'Enter') close({ l:l.value, p:p.value });
         if (e.key === 'Escape') close(null);
       };
-      loginEl.onkeydown = onKey;
-      pwdEl.onkeydown   = onKey;
+      l.onkeydown = k; p.onkeydown = k;
     });
   }
 
@@ -133,21 +105,133 @@
     btn.id = 'auth-btn';
     btn.textContent = authorized ? '🚪' : '🔒';
     btn.title = authorized ? 'Выйти из режима редактора' : 'Войти как редактор';
-    btn.addEventListener('click', async () => {
+    btn.addEventListener('click', () => {
       if (authorized) {
-        if (confirm('Выйти из режима редактирования?')) {
-          clearSession();
-          location.reload();
-        }
-      } else {
-        promptLogin();
-      }
+        if (confirm('Выйти из режима редактирования?')) { clearSession(); location.reload(); }
+      } else promptLogin();
     });
     document.body.appendChild(btn);
   }
 
   // =====================================================
-  // ЧАСТЬ 3. Редактор — только для админа
+  // WYSIWYG-панель
+  // =====================================================
+  let savedRange = null;
+
+  function saveSelection(){
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount > 0) savedRange = sel.getRangeAt(0).cloneRange();
+  }
+
+  function restoreSelection(){
+    if (!savedRange) return;
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(savedRange);
+  }
+
+  function exec(cmd, val){
+    restoreSelection();
+    document.execCommand(cmd, false, val ?? null);
+    saveSelection();
+    updateToolbarState();
+  }
+
+  function updateToolbarState(){
+    document.querySelectorAll('.fmt-toolbar button[data-cmd]').forEach(btn => {
+      const cmd = btn.dataset.cmd;
+      try {
+        if (document.queryCommandState(cmd)) btn.classList.add('active');
+        else btn.classList.remove('active');
+      } catch(e){}
+    });
+  }
+
+  function buildFormatToolbar(section){
+    const bar = document.createElement('div');
+    bar.className = 'fmt-toolbar';
+    bar.setAttribute('contenteditable','false');
+    bar.innerHTML = `
+      <button type="button" data-cmd="bold" title="Жирный (Ctrl+B)"><b>B</b></button>
+      <button type="button" data-cmd="italic" title="Курсив (Ctrl+I)"><i>I</i></button>
+      <button type="button" data-cmd="underline" title="Подчёркнутый (Ctrl+U)"><u>U</u></button>
+      <button type="button" data-cmd="strikeThrough" title="Зачёркнутый"><s>S</s></button>
+      <span class="sep"></span>
+      <select data-format title="Стиль абзаца">
+        <option value="p">Абзац</option>
+        <option value="h2">Заголовок 2</option>
+        <option value="h3">Заголовок 3</option>
+        <option value="blockquote">Цитата</option>
+      </select>
+      <span class="sep"></span>
+      <button type="button" data-cmd="insertUnorderedList" title="Маркированный список">• ≡</button>
+      <button type="button" data-cmd="insertOrderedList" title="Нумерованный список">1. ≡</button>
+      <span class="sep"></span>
+      <label title="Цвет текста">
+        <span class="swatch fg">A</span>
+        <input type="color" data-color="foreColor" value="#ff3b3b">
+      </label>
+      <label title="Цвет фона (маркер)">
+        <span class="swatch bg">A</span>
+        <input type="color" data-color="hiliteColor" value="#ffeb3b">
+      </label>
+      <button type="button" id="eyedropper" title="Пипетка — взять цвет с экрана">🎨</button>
+      <span class="sep"></span>
+      <button type="button" data-cmd="createLink" title="Вставить ссылку">🔗</button>
+      <button type="button" data-cmd="unlink" title="Убрать ссылку">⛓️‍💥</button>
+      <button type="button" data-cmd="removeFormat" title="Очистить формат">✕A</button>
+    `;
+
+    // Кнопки
+    bar.querySelectorAll('button[data-cmd]').forEach(btn => {
+      btn.addEventListener('mousedown', e => e.preventDefault());
+      btn.addEventListener('click', () => {
+        const cmd = btn.dataset.cmd;
+        if (cmd === 'createLink') {
+          const url = prompt('URL ссылки:', 'https://');
+          if (url) exec('createLink', url);
+        } else {
+          exec(cmd);
+        }
+      });
+    });
+
+    // Селект "стиль абзаца"
+    bar.querySelector('select[data-format]').addEventListener('change', function(){
+      exec('formatBlock', '<' + this.value + '>');
+    });
+
+    // Цвет текста / фона
+    bar.querySelectorAll('input[type="color"]').forEach(inp => {
+      inp.addEventListener('input', function(){
+        exec(this.dataset.color, this.value);
+      });
+    });
+
+    // Пипетка
+    const dropBtn = bar.querySelector('#eyedropper');
+    if (window.EyeDropper) {
+      dropBtn.addEventListener('mousedown', e => e.preventDefault());
+      dropBtn.addEventListener('click', async () => {
+        try {
+          const result = await new window.EyeDropper().open();
+          exec('foreColor', result.sRGBHex);
+        } catch(e){}
+      });
+    } else {
+      dropBtn.style.display = 'none';
+    }
+
+    // Сохраняем выделение при вводе текста и кликах в области
+    section.addEventListener('keyup', saveSelection);
+    section.addEventListener('mouseup', saveSelection);
+    section.addEventListener('input', updateToolbarState);
+
+    return bar;
+  }
+
+  // =====================================================
+  // Редактор разделов
   // =====================================================
   function attachEditors(serverContent){
     let cache = {};
@@ -160,7 +244,7 @@
       const key = pageKey(id);
       const originalContent = getCleanContent(section);
 
-      section.querySelectorAll('.section-tools').forEach(el => el.remove());
+      section.querySelectorAll('.section-tools, .fmt-toolbar').forEach(el => el.remove());
 
       const tools = document.createElement('div');
       tools.className = 'section-tools';
@@ -168,10 +252,12 @@
       section.appendChild(tools);
 
       let backup = '';
+      let fmtBar = null;
 
       function renderNormal(){
         section.contentEditable = 'false';
         section.classList.remove('editing');
+        if (fmtBar) { fmtBar.remove(); fmtBar = null; }
         tools.innerHTML =
             '<button type="button" class="edit">✏️ Редактировать</button>'
           + (merged[key] ? ' <button type="button" class="reset">🗑 Сбросить</button>' : '');
@@ -190,15 +276,28 @@
         tools.querySelector('.save').addEventListener('click', saveEdit);
         tools.querySelector('.cancel').addEventListener('click', cancelEdit);
         tools.querySelector('.reset').addEventListener('click', resetEdit);
+
+        fmtBar = buildFormatToolbar(section);
+        // Вставляем панель в самое начало секции
+        section.insertBefore(fmtBar, section.firstChild);
       }
 
       function startEdit(){
         backup = getCleanContent(section);
         renderEditing();
-        section.focus({ preventScroll: true });
+        section.focus({ preventScroll:true });
+        // Первый диапазон = начало секции
+        const sel = window.getSelection();
+        const range = document.createRange();
+        range.selectNodeContents(section);
+        range.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(range);
+        saveSelection();
       }
 
       async function saveEdit(){
+        // Забираем контент ДО выхода из редактирования (пока панель ещё в DOM - не мешает)
         const newContent = getCleanContent(section);
         const candidate  = { ...merged, [key]: newContent };
 
@@ -213,17 +312,12 @@
             },
             body: JSON.stringify(candidate)
           });
-
           if (!res.ok) {
             const t = await res.text().catch(() => '');
             throw new Error('HTTP ' + res.status + ' ' + t);
           }
-
           merged[key] = newContent;
           localStorage.setItem(cacheKey, JSON.stringify(merged));
-
-          section.contentEditable = 'false';
-          section.classList.remove('editing');
           renderNormal();
           flash('✓ Сохранено для всех');
         } catch(e) {
@@ -281,9 +375,7 @@
     });
   }
 
-  // =====================================================
-  // Запуск
-  // =====================================================
+  // ---------- Запуск ----------
   (async function init(){
     const serverContent = await loadServerContent();
     applyContent(serverContent);
