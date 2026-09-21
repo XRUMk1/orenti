@@ -147,54 +147,206 @@
     });
   }
 
-  function buildFormatToolbar(section){
-    const bar = document.createElement('div');
-    bar.className = 'fmt-toolbar';
-    bar.setAttribute('contenteditable','false');
-    bar.innerHTML = `
-      <button type="button" data-cmd="bold" title="Жирный (Ctrl+B)"><b>B</b></button>
-      <button type="button" data-cmd="italic" title="Курсив (Ctrl+I)"><i>I</i></button>
-      <button type="button" data-cmd="underline" title="Подчёркнутый (Ctrl+U)"><u>U</u></button>
-      <button type="button" data-cmd="strikeThrough" title="Зачёркнутый"><s>S</s></button>
-      <span class="sep"></span>
-      <select data-format title="Стиль абзаца">
-        <option value="p">Абзац</option>
-        <option value="h2">Заголовок 2</option>
-        <option value="h3">Заголовок 3</option>
-        <option value="blockquote">Цитата</option>
-      </select>
-      <span class="sep"></span>
-      <button type="button" data-cmd="insertUnorderedList" title="Маркированный список">• ≡</button>
-      <button type="button" data-cmd="insertOrderedList" title="Нумерованный список">1. ≡</button>
-      <span class="sep"></span>
-      <label title="Цвет текста">
-        <span class="swatch fg">A</span>
-        <input type="color" data-color="foreColor" value="#ff3b3b">
-      </label>
-      <label title="Цвет фона (маркер)">
-        <span class="swatch bg">A</span>
-        <input type="color" data-color="hiliteColor" value="#ffeb3b">
-      </label>
-      <button type="button" id="eyedropper" title="Пипетка — взять цвет с экрана">🎨</button>
-      <span class="sep"></span>
-      <button type="button" data-cmd="createLink" title="Вставить ссылку">🔗</button>
-      <button type="button" data-cmd="unlink" title="Убрать ссылку">⛓️‍💥</button>
-      <button type="button" data-cmd="removeFormat" title="Очистить формат">✕A</button>
-    `;
+ function buildFormatToolbar(section){
+  const bar = document.createElement('div');
+  bar.className = 'fmt-toolbar';
+  bar.setAttribute('contenteditable','false');
+  bar.innerHTML = `
+    <button type="button" class="fmt-close" title="Скрыть панель">✕</button>
+    <button type="button" data-cmd="bold" title="Жирный (Ctrl+B)"><b>B</b></button>
+    <button type="button" data-cmd="italic" title="Курсив (Ctrl+I)"><i>I</i></button>
+    <button type="button" data-cmd="underline" title="Подчёркнутый (Ctrl+U)"><u>U</u></button>
+    <button type="button" data-cmd="strikeThrough" title="Зачёркнутый"><s>S</s></button>
+    <span class="sep"></span>
+    <select data-format title="Стиль абзаца">
+      <option value="p">Абзац</option>
+      <option value="h2">Заголовок 2</option>
+      <option value="h3">Заголовок 3</option>
+      <option value="blockquote">Цитата</option>
+    </select>
+    <span class="sep"></span>
+    <button type="button" data-cmd="insertUnorderedList" title="Маркированный список">• ≡</button>
+    <button type="button" data-cmd="insertOrderedList" title="Нумерованный список">1. ≡</button>
+    <span class="sep"></span>
+    <label title="Цвет текста">
+      <span class="swatch fg">A</span>
+      <input type="color" data-color="foreColor" value="#ff3b3b">
+    </label>
+    <label title="Цвет фона (маркер)">
+      <span class="swatch bg">A</span>
+      <input type="color" data-color="hiliteColor" value="#ffeb3b">
+    </label>
+    <button type="button" id="eyedropper" title="Пипетка — взять цвет с экрана">🎨</button>
+    <span class="sep"></span>
+    <button type="button" data-cmd="createLink" title="Вставить ссылку">🔗</button>
+    <button type="button" data-cmd="unlink" title="Убрать ссылку">⛓️‍💥</button>
+    <button type="button" data-cmd="removeFormat" title="Очистить формат">✕A</button>
+  `;
 
-    // Кнопки
-    bar.querySelectorAll('button[data-cmd]').forEach(btn => {
-      btn.addEventListener('mousedown', e => e.preventDefault());
-      btn.addEventListener('click', () => {
-        const cmd = btn.dataset.cmd;
-        if (cmd === 'createLink') {
-          const url = prompt('URL ссылки:', 'https://');
-          if (url) exec('createLink', url);
-        } else {
-          exec(cmd);
-        }
-      });
+  // --- Кнопки форматирования ---
+  bar.querySelectorAll('button[data-cmd]').forEach(btn => {
+    btn.addEventListener('mousedown', e => e.preventDefault());
+    btn.addEventListener('click', () => {
+      const cmd = btn.dataset.cmd;
+      if (cmd === 'createLink') {
+        const url = prompt('URL ссылки:', 'https://');
+        if (url) exec('createLink', url);
+      } else {
+        exec(cmd);
+      }
     });
+  });
+
+  // --- Селект стиля абзаца ---
+  bar.querySelector('select[data-format]').addEventListener('change', function(){
+    exec('formatBlock', '<' + this.value + '>');
+  });
+
+  // --- Цвета ---
+  bar.querySelectorAll('input[type="color"]').forEach(inp => {
+    inp.addEventListener('input', function(){
+      exec(this.dataset.color, this.value);
+    });
+  });
+
+  // --- Пипетка ---
+  const dropBtn = bar.querySelector('#eyedropper');
+  if (window.EyeDropper) {
+    dropBtn.addEventListener('mousedown', e => e.preventDefault());
+    dropBtn.addEventListener('click', async () => {
+      try {
+        const result = await new window.EyeDropper().open();
+        exec('foreColor', result.sRGBHex);
+      } catch(e){}
+    });
+  } else {
+    dropBtn.style.display = 'none';
+  }
+
+  // --- Скрыть панель ---
+  bar.querySelector('.fmt-close').addEventListener('click', e => {
+    e.stopPropagation();
+    bar.remove();
+    localStorage.setItem('orenti-fmtbar-hidden', '1');
+  });
+
+  // --- Сохранение выделения ---
+  section.addEventListener('keyup', saveSelection);
+  section.addEventListener('mouseup', saveSelection);
+  section.addEventListener('input', updateToolbarState);
+
+  // --- Перетаскивание ---
+  makeDraggable(bar);
+
+  return bar;
+}
+
+/* Перетаскивание панели */
+function makeDraggable(bar){
+  // Восстанавливаем позицию из localStorage
+  try {
+    const savedPos = JSON.parse(localStorage.getItem('orenti-fmtbar-pos') || 'null');
+    if (savedPos && typeof savedPos.x === 'number' && typeof savedPos.y === 'number') {
+      bar.style.left = savedPos.x + 'px';
+      bar.style.top  = savedPos.y + 'px';
+      bar.style.bottom = 'auto';
+    }
+  } catch(e){}
+
+  let drag = false;
+  let startX = 0, startY = 0, offsetX = 0, offsetY = 0;
+
+  // Только при клике именно по ручке (::before — псевдоэлемент, но клик по нему
+  // ловится как клик по самому бару слева в области 32px)
+  const HANDLE_WIDTH = 32;
+
+  bar.addEventListener('mousedown', e => {
+    const rect = bar.getBoundingClientRect();
+    const inHandle = (e.clientX - rect.left) < HANDLE_WIDTH;
+    if (!inHandle) return;
+    if (e.target.closest('button, select, label, input')) return;
+
+    e.preventDefault();
+    drag = true;
+    bar.classList.add('dragging');
+
+    startX = e.clientX;
+    startY = e.clientY;
+    const r = bar.getBoundingClientRect();
+    offsetX = startX - r.left;
+    offsetY = startY - r.top;
+
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  });
+
+  // То же для тач-устройств
+  bar.addEventListener('touchstart', e => {
+    const rect = bar.getBoundingClientRect();
+    const touch = e.touches[0];
+    const inHandle = (touch.clientX - rect.left) < HANDLE_WIDTH;
+    if (!inHandle) return;
+    if (e.target.closest('button, select, label, input')) return;
+
+    drag = true;
+    bar.classList.add('dragging');
+
+    startX = touch.clientX;
+    startY = touch.clientY;
+    const r = bar.getBoundingClientRect();
+    offsetX = startX - r.left;
+    offsetY = startY - r.top;
+
+    document.addEventListener('touchmove', onTouchMove, { passive: false });
+    document.addEventListener('touchend', onTouchEnd);
+  }, { passive: true });
+
+  function onMove(e){
+    if (!drag) return;
+    moveTo(e.clientX, e.clientY);
+  }
+  function onTouchMove(e){
+    if (!drag) return;
+    e.preventDefault();
+    const t = e.touches[0];
+    moveTo(t.clientX, t.clientY);
+  }
+  function moveTo(cx, cy){
+    let x = cx - offsetX;
+    let y = cy - offsetY;
+
+    // Не выпускаем за границы экрана
+    const w = bar.offsetWidth;
+    const h = bar.offsetHeight;
+    x = Math.max(4, Math.min(window.innerWidth  - w - 4, x));
+    y = Math.max(4, Math.min(window.innerHeight - h - 4, y));
+
+    bar.style.left = x + 'px';
+    bar.style.top  = y + 'px';
+    bar.style.bottom = 'auto';
+  }
+  function onUp(){
+    if (!drag) return;
+    drag = false;
+    bar.classList.remove('dragging');
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+
+    // Сохраняем позицию
+    const r = bar.getBoundingClientRect();
+    localStorage.setItem('orenti-fmtbar-pos', JSON.stringify({ x: r.left, y: r.top }));
+  }
+  function onTouchEnd(){
+    if (!drag) return;
+    drag = false;
+    bar.classList.remove('dragging');
+    document.removeEventListener('touchmove', onTouchMove);
+    document.removeEventListener('touchend', onTouchEnd);
+
+    const r = bar.getBoundingClientRect();
+    localStorage.setItem('orenti-fmtbar-pos', JSON.stringify({ x: r.left, y: r.top }));
+  }
+}
 
     // Селект "стиль абзаца"
     bar.querySelector('select[data-format]').addEventListener('change', function(){
