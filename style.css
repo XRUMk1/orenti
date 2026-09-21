@@ -477,11 +477,12 @@ section.block.editing h2::after{background:var(--accent);animation:pulse 1.2s in
   h2{font-size:22px}
   h1{font-size:38px}
 }
-/* ===== Панель форматирования ===== */
+/* ===== Панель форматирования (плавающая) ===== */
 .fmt-toolbar{
-  position:sticky;
-  top:76px;
-  z-index:10;
+  position:fixed;
+  left:20px;
+  bottom:20px;
+  z-index:9998;
   display:flex;
   flex-wrap:wrap;
   align-items:center;
@@ -489,10 +490,30 @@ section.block.editing h2::after{background:var(--accent);animation:pulse 1.2s in
   background:var(--panel2);
   border:1px solid var(--line-strong);
   border-radius:8px;
-  padding:6px 8px;
-  margin:-6px 0 18px;
-  box-shadow:0 6px 24px rgba(0,0,0,.5);
+  padding:6px 8px 6px 32px;
+  box-shadow:0 12px 40px rgba(0,0,0,.7);
+  max-width:min(92vw,640px);
+  cursor:default;
+  user-select:none;
 }
+
+/* Ручка для перетаскивания */
+.fmt-toolbar::before{
+  content:'⋮⋮';
+  position:absolute;
+  left:6px;
+  top:50%;
+  transform:translateY(-50%);
+  color:var(--muted);
+  font-size:14px;
+  letter-spacing:-2px;
+  cursor:grab;
+  padding:8px 4px;
+  line-height:1;
+}
+.fmt-toolbar.dragging::before{cursor:grabbing}
+.fmt-toolbar.dragging{opacity:.85}
+
 .fmt-toolbar button,
 .fmt-toolbar select,
 .fmt-toolbar label{
@@ -527,6 +548,7 @@ section.block.editing h2::after{background:var(--accent);animation:pulse 1.2s in
 .fmt-toolbar select{
   padding:0 6px;
   height:30px;
+  cursor:pointer;
 }
 .fmt-toolbar .sep{
   width:1px;
@@ -563,6 +585,38 @@ section.block.editing h2::after{background:var(--accent);animation:pulse 1.2s in
   background:#ffeb3b;
   padding:0 5px;
 }
-.fmt-toolbar #eyedropper{
-  font-size:15px;
+.fmt-toolbar #eyedropper{font-size:15px}
+
+/* Кнопка «скрыть панель» */
+.fmt-toolbar .fmt-close{
+  position:absolute;
+  right:4px;
+  top:-10px;
+  background:var(--accent);
+  border:1px solid var(--accent);
+  color:#fff;
+  width:20px;
+  height:20px;
+  min-width:20px;
+  border-radius:50%;
+  padding:0;
+  font-size:12px;
+  line-height:1;
+  cursor:pointer;
+}
+.fmt-toolbar .fmt-close:hover{
+  background:var(--accent-dark);
+  border-color:var(--accent-dark);
+  color:#fff;
+}
+
+/* На мобильных — панель на всю ширину снизу */
+@media(max-width:640px){
+  .fmt-toolbar{
+    left:8px;
+    right:8px;
+    bottom:8px;
+    max-width:none;
+    padding-left:30px;
+  }
 }
