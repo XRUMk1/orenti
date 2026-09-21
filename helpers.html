@@ -1,1 +1,29 @@
-
+<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Хелперы — ORENTI</title>
+<link rel="icon" type="image/png" href="favicon.png">
+<link rel="apple-touch-icon" href="favicon.png">
+<link rel="stylesheet" href="style.css"></head><body>
+<header><div class="container nav"><a class="brand" href="index.html">ORENTI <span>Администрация</span></a><nav class="navlinks"><a href="index.html">Главная</a><a href="moderators.html">Модераторы</a><a class="active" href="helpers.html">Хелперы</a><a href="ga-zga.html">ГА / ЗГА</a><a href="support.html">Поддержка / кураторы</a></nav></div></header><main class="container">
+<div class="hero"><div class="toolbar"><input id="siteSearch" placeholder="🔎 Поиск по этому разделу…"></div><a class="back" href="index.html">← На главную</a><div class="kicker">Раздел 04</div><h1>🆘 Хелперы</h1><p class="lead">Базовые обязанности, работа с репортами и взаимодействие с игроками.</p></div>
+<div class="layout"><aside><div class="toc">
+<a href="#duties">Обязанности</a></div></aside>
+<div>
+<section id="duties" class="block"><h2>Обязанности хелпера</h2>
+<blockquote>Хелпер закрывает репорты, патрулирует серверы, помогает игрокам в чате и Discord. Онлайн — 5 часов в неделю.</blockquote>
+<p>Нажми «✏️ Редактировать», чтобы добавить инструкции, или создай новый раздел через кнопку «➕ Добавить раздел» внизу бокового меню.</p>
+</section>
+</div></div>
+</main><footer><div class="container">Внутренняя памятка администрации • собрано из исходных памяток Telegraph</div></footer>
+<script>
+(function(){
+ const input=document.querySelector('#siteSearch'); if(!input)return;
+ input.addEventListener('input',function(){
+   const q=this.value.trim().toLowerCase();
+   document.querySelectorAll('section.block').forEach(s=>{
+      s.style.display = (!q || s.innerText.toLowerCase().includes(q)) ? '' : 'none';
+   });
+ });
+})();
+</script>
+<script src="edit.js"></script>
+</body></html>
