@@ -1,0 +1,382 @@
+<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Таблица администрации — ORENTI</title>
+<link rel="icon" type="image/png" href="favicon.png">
+<link rel="apple-touch-icon" href="favicon.png">
+<link rel="stylesheet" href="style.css">
+<style>
+/* ===== Стили таблицы ===== */
+.table-wrap{
+  overflow-x:auto;
+  background:var(--panel);
+  border:1px solid var(--line);
+  border-radius:8px;
+  margin:20px 0;
+}
+table.admin-table{
+  width:100%;
+  border-collapse:collapse;
+  font-size:14px;
+  min-width:900px;
+}
+table.admin-table th,
+table.admin-table td{
+  border:1px solid var(--line);
+  padding:10px 12px;
+  text-align:left;
+  vertical-align:top;
+  color:var(--text);
+  min-width:100px;
+}
+table.admin-table th{
+  background:var(--panel2);
+  color:var(--text);
+  font-weight:800;
+  text-transform:uppercase;
+  font-size:11px;
+  letter-spacing:.06em;
+  position:sticky;top:0;z-index:2;
+}
+table.admin-table tr:hover td{
+  background:rgba(255,59,59,.04);
+}
+table.admin-table td[contenteditable="true"]{
+  outline:2px solid var(--accent);
+  outline-offset:-2px;
+  background:#0a0a0a;
+  cursor:text;
+}
+table.admin-table td[contenteditable="true"]:focus{
+  background:#000;
+}
+table.admin-table td .row-num{
+  color:var(--muted);
+  font-size:12px;
+  font-weight:700;
+}
+table.admin-table td.row-actions{
+  width:1%;
+  white-space:nowrap;
+  text-align:center;
+  min-width:44px;
+}
+.btn-del{
+  background:rgba(255,59,59,.12);
+  border:1px solid rgba(255,59,59,.4);
+  color:var(--accent);
+  width:26px;height:26px;
+  border-radius:5px;
+  cursor:pointer;
+  font-family:inherit;font-weight:700;
+  font-size:13px;
+  padding:0;
+  line-height:1;
+}
+.btn-del:hover{background:var(--accent);color:#fff}
+
+.table-tools{
+  display:flex;gap:10px;flex-wrap:wrap;
+  margin:16px 0;
+}
+.table-tools button{
+  padding:10px 16px;
+  border-radius:6px;
+  border:1px solid var(--line-strong);
+  background:var(--panel2);
+  color:var(--text);
+  cursor:pointer;
+  font-family:inherit;
+  font-size:12px;
+  font-weight:700;
+  text-transform:uppercase;
+  letter-spacing:.06em;
+  transition:.15s;
+}
+.table-tools button:hover{background:var(--panel);border-color:var(--accent)}
+.table-tools button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.table-tools button.primary:hover{background:var(--accent-dark)}
+.table-tools button.danger{
+  background:rgba(255,59,59,.1);
+  border-color:rgba(255,59,59,.4);
+  color:var(--accent);
+}
+.table-tools button.danger:hover{background:var(--accent);color:#fff}
+
+.save-status{
+  margin-left:auto;
+  color:var(--muted);
+  font-size:12px;
+  text-transform:uppercase;
+  letter-spacing:.06em;
+  align-self:center;
+}
+.save-status.saved{color:var(--good)}
+.save-status.error{color:var(--accent)}
+.save-status.saving{color:var(--warn)}
+
+.empty-msg{
+  text-align:center;
+  padding:40px 20px;
+  color:var(--muted);
+}
+@media(max-width:640px){
+  table.admin-table{font-size:13px}
+  table.admin-table th,table.admin-table td{padding:8px 10px}
+}
+</style>
+</head><body>
+<header><div class="container nav"><a class="brand" href="index.html">ORENTI <span>Администрация</span></a><nav class="navlinks"><a href="index.html">Главная</a><a href="moderators.html">Модераторы</a><a href="helpers.html">Хелперы</a><a href="ga-zga.html">ГА / ЗГА</a><a href="support.html">Поддержка / кураторы</a><a class="active" href="table.html">Таблица</a></nav></div></header><main class="container">
+<div class="hero">
+  <a class="back" href="index.html">← На главную</a>
+  <div class="kicker">Раздел 05</div>
+  <h1>📋 Таблица<br>администрации</h1>
+  <p class="lead">Реестр администрации проекта. Данные синхронизируются между всеми устройствами.</p>
+</div>
+
+<div class="table-tools" id="tools" style="display:none">
+  <button type="button" class="primary" id="btnAddRow">➕ Добавить строку</button>
+  <button type="button" class="danger" id="btnAddCol">➕ Добавить колонку</button>
+  <button type="button" class="danger" id="btnClear">🗑 Очистить таблицу</button>
+  <button type="button" class="primary" id="btnSave">💾 Сохранить</button>
+  <span class="save-status" id="status">Готово</span>
+</div>
+
+<div class="table-wrap">
+  <div class="empty-msg" id="emptyMsg">Загрузка таблицы...</div>
+  <table class="admin-table" id="tbl" style="display:none">
+    <thead><tr id="thead"></tr></thead>
+    <tbody id="tbody"></tbody>
+  </table>
+</div>
+
+</main><footer><div class="container">Внутренняя памятка администрации • собрано из исходных памяток Telegraph</div></footer>
+
+<script src="edit.js"></script>
+<script>
+(function(){
+  const API = '/api/table';
+  const TOKEN_KEY = 'orenti-edit-token';
+
+  let state = { headers: [], rows: [] };
+  let dirty = false;
+  let authorized = false;
+
+  const $status = document.getElementById('status');
+  const $tools = document.getElementById('tools');
+  const $tbl = document.getElementById('tbl');
+  const $thead = document.getElementById('thead');
+  const $tbody = document.getElementById('tbody');
+  const $empty = document.getElementById('emptyMsg');
+
+  // --- Загрузка данных ---
+  async function loadTable(){
+    try {
+      const res = await fetch(API + '?t=' + Date.now(), { cache:'no-store' });
+      const data = await res.json();
+      state.headers = Array.isArray(data.headers) ? data.headers : [];
+      state.rows = Array.isArray(data.rows) ? data.rows : [];
+    } catch(e){
+      console.error('load error', e);
+      state.headers = [];
+      state.rows = [];
+    }
+  }
+
+  // --- Рендер ---
+  function renderTable(){
+    $thead.innerHTML = '';
+    $tbody.innerHTML = '';
+
+    if (!state.headers.length && !state.rows.length){
+      $empty.textContent = authorized
+        ? 'Таблица пуста. Нажми «➕ Добавить колонку», затем «➕ Добавить строку».'
+        : 'Таблица пока не заполнена.';
+      $empty.style.display = '';
+      $tbl.style.display = 'none';
+      return;
+    }
+
+    $empty.style.display = 'none';
+    $tbl.style.display = '';
+
+    // Шапка
+    state.headers.forEach((h, i) => {
+      const th = document.createElement('th');
+      th.textContent = h || ('Колонка ' + (i+1));
+      if (authorized){
+        th.contentEditable = 'true';
+        th.addEventListener('blur', () => {
+          state.headers[i] = th.textContent.trim();
+          dirty = true;
+          setStatus('Изменено', '');
+        });
+        th.addEventListener('keydown', e => {
+          if (e.key === 'Enter'){ e.preventDefault(); th.blur(); }
+        });
+      }
+      $thead.appendChild(th);
+    });
+
+    // Колонка действий
+    if (authorized){
+      const th = document.createElement('th');
+      th.textContent = '';
+      th.style.width = '1%';
+      $thead.appendChild(th);
+    }
+
+    // Строки
+    state.rows.forEach((row, ri) => {
+      const tr = document.createElement('tr');
+
+      state.headers.forEach((_, ci) => {
+        const td = document.createElement('td');
+        td.textContent = row[ci] != null ? row[ci] : '';
+        if (authorized){
+          td.contentEditable = 'true';
+          td.addEventListener('blur', () => {
+            state.rows[ri][ci] = td.textContent;
+            dirty = true;
+            setStatus('Изменено', '');
+          });
+          td.addEventListener('keydown', e => {
+            if (e.key === 'Enter' && !e.shiftKey){
+              e.preventDefault();
+              td.blur();
+            }
+          });
+        }
+        tr.appendChild(td);
+      });
+
+      if (authorized){
+        const td = document.createElement('td');
+        td.className = 'row-actions';
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn-del';
+        btn.textContent = '✕';
+        btn.title = 'Удалить строку';
+        btn.addEventListener('click', () => {
+          if (!confirm('Удалить строку?')) return;
+          state.rows.splice(ri, 1);
+          dirty = true;
+          renderTable();
+          setStatus('Изменено', '');
+        });
+        td.appendChild(btn);
+        tr.appendChild(td);
+      }
+
+      $tbody.appendChild(tr);
+    });
+  }
+
+  // --- Статус ---
+  function setStatus(text, cls){
+    $status.textContent = text;
+    $status.className = 'save-status' + (cls ? ' ' + cls : '');
+  }
+
+  // --- Сохранение ---
+  async function saveTable(){
+    if (!authorized) return;
+    setStatus('⏳ Сохраняю...', 'saving');
+    try {
+      const res = await fetch(API, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + (localStorage.getItem(TOKEN_KEY) || '')
+        },
+        body: JSON.stringify(state)
+      });
+      if (!res.ok){
+        const t = await res.text().catch(() => '');
+        throw new Error('HTTP ' + res.status + ' ' + t);
+      }
+      dirty = false;
+      setStatus('✓ Сохранено', 'saved');
+      setTimeout(() => setStatus('Готово', ''), 2500);
+    } catch(e){
+      console.error(e);
+      setStatus('⚠ ' + e.message, 'error');
+    }
+  }
+
+  // --- Добавить строку ---
+  function addRow(){
+    if (!state.headers.length){
+      alert('Сначала добавь хотя бы одну колонку.');
+      return;
+    }
+    state.rows.push(new Array(state.headers.length).fill(''));
+    dirty = true;
+    renderTable();
+    setStatus('Изменено', '');
+    // Скроллим к новой строке
+    setTimeout(() => {
+      const rows = $tbody.querySelectorAll('tr');
+      if (rows.length) rows[rows.length - 1].scrollIntoView({ behavior:'smooth', block:'center' });
+    }, 50);
+  }
+
+  // --- Добавить колонку ---
+  function addCol(){
+    const name = prompt('Название новой колонки:', 'Новая колонка');
+    if (name === null) return;
+    state.headers.push((name || 'Новая колонка').trim() || 'Новая колонка');
+    state.rows.forEach(r => r.push(''));
+    dirty = true;
+    renderTable();
+    setStatus('Изменено', '');
+  }
+
+  // --- Очистить таблицу ---
+  function clearTable(){
+    if (!confirm('Удалить ВСЕ строки и колонки? Действие необратимо.')) return;
+    state = { headers: [], rows: [] };
+    dirty = true;
+    renderTable();
+    setStatus('Изменено', '');
+  }
+
+  // --- Авторизация через тот же edit.js ---
+  function checkAuth(){
+    const until = Number(localStorage.getItem('orenti-auth-until'));
+    return until && until > Date.now();
+  }
+
+  // --- Инициализация ---
+  (async function init(){
+    await loadTable();
+
+    authorized = checkAuth();
+    if (authorized){
+      $tools.style.display = '';
+      document.getElementById('btnAddRow').addEventListener('click', addRow);
+      document.getElementById('btnAddCol').addEventListener('click', addCol);
+      document.getElementById('btnClear').addEventListener('click', clearTable);
+      document.getElementById('btnSave').addEventListener('click', saveTable);
+    }
+
+    renderTable();
+
+    // Предупреждение при уходе с несохранёнными правками
+    window.addEventListener('beforeunload', e => {
+      if (dirty && authorized){
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    });
+
+    // Авто-сохранение по Ctrl+S
+    document.addEventListener('keydown', e => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 's' && authorized){
+        e.preventDefault();
+        saveTable();
+      }
+    });
+  })();
+})();
+</script>
+</body></html>
