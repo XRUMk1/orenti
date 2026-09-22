@@ -4,28 +4,28 @@
 <link rel="apple-touch-icon" href="favicon.png">
 <link rel="stylesheet" href="style.css">
 <style>
-/* ===== Стили таблицы ===== */
 .table-wrap{
   overflow-x:auto;
   background:var(--panel);
   border:1px solid var(--line);
   border-radius:8px;
   margin:20px 0;
+  max-height:80vh;
 }
 table.admin-table{
   width:100%;
   border-collapse:collapse;
-  font-size:14px;
-  min-width:900px;
+  font-size:13px;
+  min-width:1100px;
 }
 table.admin-table th,
 table.admin-table td{
   border:1px solid var(--line);
-  padding:10px 12px;
+  padding:8px 10px;
   text-align:left;
   vertical-align:top;
   color:var(--text);
-  min-width:100px;
+  white-space:nowrap;
 }
 table.admin-table th{
   background:var(--panel2);
@@ -34,25 +34,31 @@ table.admin-table th{
   text-transform:uppercase;
   font-size:11px;
   letter-spacing:.06em;
-  position:sticky;top:0;z-index:2;
+  position:sticky;top:0;z-index:3;
 }
-table.admin-table tr:hover td{
-  background:rgba(255,59,59,.04);
+table.admin-table tr:hover td{background:rgba(255,59,59,.04)}
+
+/* Строка-заголовок секции */
+table.admin-table tr.section-row td{
+  background:#0d0d0d !important;
+  color:var(--accent);
+  font-weight:900;
+  text-transform:uppercase;
+  letter-spacing:.08em;
+  font-size:12px;
+  border-color:var(--accent);
+  border-top:2px solid var(--accent);
+  border-bottom:2px solid var(--accent);
 }
+
 table.admin-table td[contenteditable="true"]{
   outline:2px solid var(--accent);
   outline-offset:-2px;
   background:#0a0a0a;
   cursor:text;
 }
-table.admin-table td[contenteditable="true"]:focus{
-  background:#000;
-}
-table.admin-table td .row-num{
-  color:var(--muted);
-  font-size:12px;
-  font-weight:700;
-}
+table.admin-table td[contenteditable="true"]:focus{background:#000}
+
 table.admin-table td.row-actions{
   width:1%;
   white-space:nowrap;
@@ -64,18 +70,16 @@ table.admin-table td.row-actions{
   border:1px solid rgba(255,59,59,.4);
   color:var(--accent);
   width:26px;height:26px;
-  border-radius:5px;
-  cursor:pointer;
-  font-family:inherit;font-weight:700;
-  font-size:13px;
-  padding:0;
-  line-height:1;
+  border-radius:5px;cursor:pointer;
+  font-family:inherit;font-weight:700;font-size:13px;
+  padding:0;line-height:1;
 }
 .btn-del:hover{background:var(--accent);color:#fff}
 
 .table-tools{
   display:flex;gap:10px;flex-wrap:wrap;
   margin:16px 0;
+  align-items:center;
 }
 .table-tools button{
   padding:10px 16px;
@@ -84,11 +88,8 @@ table.admin-table td.row-actions{
   background:var(--panel2);
   color:var(--text);
   cursor:pointer;
-  font-family:inherit;
-  font-size:12px;
-  font-weight:700;
-  text-transform:uppercase;
-  letter-spacing:.06em;
+  font-family:inherit;font-size:12px;font-weight:700;
+  text-transform:uppercase;letter-spacing:.06em;
   transition:.15s;
 }
 .table-tools button:hover{background:var(--panel);border-color:var(--accent)}
@@ -101,17 +102,28 @@ table.admin-table td.row-actions{
 }
 .table-tools button.danger:hover{background:var(--accent);color:#fff}
 
+.table-tools input[type="search"]{
+  width:auto;min-width:240px;flex:1;
+  background:var(--panel2);
+  border:1px solid var(--line-strong);
+  color:var(--text);
+  border-radius:6px;
+  padding:10px 14px;
+  font-family:inherit;font-size:13px;outline:none;
+}
+.table-tools input[type="search"]:focus{border-color:var(--accent)}
+
 .save-status{
   margin-left:auto;
   color:var(--muted);
   font-size:12px;
   text-transform:uppercase;
   letter-spacing:.06em;
-  align-self:center;
 }
 .save-status.saved{color:var(--good)}
 .save-status.error{color:var(--accent)}
 .save-status.saving{color:var(--warn)}
+.save-status.dirty{color:var(--warn)}
 
 .empty-msg{
   text-align:center;
@@ -119,8 +131,9 @@ table.admin-table td.row-actions{
   color:var(--muted);
 }
 @media(max-width:640px){
-  table.admin-table{font-size:13px}
-  table.admin-table th,table.admin-table td{padding:8px 10px}
+  table.admin-table{font-size:12px}
+  table.admin-table th,table.admin-table td{padding:6px 8px}
+  .table-tools input[type="search"]{min-width:100%}
 }
 </style>
 </head><body>
@@ -134,9 +147,10 @@ table.admin-table td.row-actions{
 
 <div class="table-tools" id="tools" style="display:none">
   <button type="button" class="primary" id="btnAddRow">➕ Добавить строку</button>
-  <button type="button" class="danger" id="btnAddCol">➕ Добавить колонку</button>
+  <button type="button" class="primary" id="btnAddCol">➕ Добавить колонку</button>
   <button type="button" class="danger" id="btnClear">🗑 Очистить таблицу</button>
   <button type="button" class="primary" id="btnSave">💾 Сохранить</button>
+  <input type="search" id="searchInput" placeholder="🔎 Поиск по таблице...">
   <span class="save-status" id="status">Готово</span>
 </div>
 
@@ -156,9 +170,66 @@ table.admin-table td.row-actions{
   const API = '/api/table';
   const TOKEN_KEY = 'orenti-edit-token';
 
+  // ============================================================
+  // Данные из CSV — встроенный дефолт (используется если облако пустое)
+  // ============================================================
+  const DEFAULT_TABLE = {
+    headers: ["Группа","Ник (cs2)","Steam ID","Стим модератора","Должность","Discord","Выговоры","Когда встал","Неактив"],
+    rows: [
+      ["Куратор","KiRiTo","76561199195392194","steam","Куратор","alessandro6852","3/3","03.01.2025","13.09-18.09"],
+      ["Куратор","XRUMk1","76561199216642187","steam","Куратор","xrumk1","","13.04.2026",""],
+      ["Куратор","far","76561199179333839","steam","Куратор","wogtyuknow","","13.05.2026",""],
+      ["Поддержка","toushiro","76561198322124659","steam","Поддержка","touushiro","","18.02.2026",""],
+      ["Поддержка","𝖗𝖎𝖒𝖞𝖗𝖆","76561199493948276","steam","Поддержка","ruine288","","07.06.2026",""],
+      ["Старшая администрация","","","","","","","",""],
+      ["Главный администратор","БорисКиселёк","76561199374743727","steam","ГА ФАН","koti5335","1/3","07.07.2026",""],
+      ["Главный администратор","𝒗1𝒍𝒐𝒏𝒆","76561199549504884","steam","ГА АВП","1vilone1","","10.09.2026",""],
+      ["Главный администратор","Lonely69","76561198775857745","steam","ГА ПАБЛИК","Lonely696","","08.03.2026",""],
+      ["Заместитель ГА","𝓑𝓔𝓩𝓛𝓘𝓚𝓘𝓨","76561198766882006","steam","ЗГА ФАН","1zanami","","17.08.2026",""],
+      ["Заместитель ГА","СОЛНЕЧНЫЙ","76561198731474540","steam","ЗГА АВП","den_afon","","21.08.2026",""],
+      ["Заместитель ГА","","","","ЗГА ПАБЛИК","","","",""],
+      ["Заместитель ГА","𝙬𝙚𝙣𝙮𝙭𝙭𝙭 | 12:02","76561199870351872","steam","ЗГА ПАБЛИК","𝙬𝙚𝙣𝙮𝙭𝙭𝙭.𝙜𝙜","","11.08.2026",""],
+      ["Помощник","","","","","","","",""],
+      ["Команда проекта","-2000aura","76561199837139351","steam","helper","f1zzz1","","",""],
+      ["Команда проекта","Samuraika","76561199590332429","steam","helper","celestialclient.fun","","",""],
+      ["Команда проекта","xedoo","76561199852039930","steam","helper","xedoo01","","",""],
+      ["Команда проекта","","","","helper","","","",""],
+      ["Команда проекта","","","","helper","","","",""],
+      ["Команда проекта","","","","helper","","","",""],
+      ["Ст.Модерация","","","","","","","",""],
+      ["Kurash","","","","Ст.модератор Паблик","","","",""],
+      ["Kurash","","","","Ст.модератор Паблик","","","",""],
+      ["Kurash","","","","Ст.модератор Паблик","","","",""],
+      ["𝒗1𝒍𝒐𝒏𝒆","","","","Ст.модератор АВП","","","",""],
+      ["Kurash","𝓜𝓪𝓲𝓴𝓲","76561199166241907","steam","Ст.модератор Паблик","babushkin122121","","17.08.2026",""],
+      ["киселёк","КИСЛИНКА","76561198758744864","Steam","Ст.модератор Фан","pon4ik3310_13373","1/3","11.08.2026",""],
+      ["киселёк","HVHKOT","76561198671426879","Steam","Ст.модератор Фан","zorobeach","","02.09.2026",""],
+      ["Младшая администрация","","","","","","","",""],
+      ["киселёк","kowalskyi","76561199860415257","Steam","Модератор Фан","aqwa_d3_26541","1/3","29.08.2026",""],
+      ["киселёк","в следующий раз","76561199528639738","Steam","Модератор Фан","demonster1907","","07.09.2026",""],
+      ["киселёк","Crespik","76561199747599934","steam","Модератор Фан","braynup","","07.09.2026",""],
+      ["киселёк","v1per","76561199545522575","steam","Модератор Фан","Banana_1917","","19.09.0206",""],
+      ["киселёк","Mistik","76561199391077851","steam","Модератор Фан","eburashka47","","20.09.2026",""],
+      ["киселёк","Sardik","76561198744722290","steam","Модератор Фан","sardik0078_84154","","21.09.2026",""],
+      ["Kurash","wsx","76561199416883784","steam","Модератор Паблик","wsxss666","","11.09.2026",""],
+      ["Kurash","waynes","76561199880515652","steam","Модератор Паблик","sdsadadssdsd","","14.09.2026",""],
+      ["Kurash","doable","76561199534578137","steam","Модератор Паблик","deaaq1","1/3","07.09.2026","20.09-27.09"],
+      ["Kurash","","","","Модератор Паблик","","","",""],
+      ["Kurash","","","","Модератор Паблик","","","",""],
+      ["Kurash","","","","Модератор Паблик","","","",""],
+      ["Kurash","","","","Модератор Паблик","","","",""],
+      ["Kurash","","","","Модератор Паблик","","","",""],
+      ["𝒗1𝒍𝒐𝒏𝒆","TAPOK","76561199486841881","steam","Модератор АВП","tapok01541","2/3","09.09.2026",""],
+      ["𝒗1𝒍𝒐𝒏𝒆","","","","Модератор АВП","","","",""],
+      ["𝒗1𝒍𝒐𝒏𝒆","","","","Модератор АВП","","","",""],
+      ["𝒗1𝒍𝒐𝒏𝒆","","","","Модератор АВП","","","",""]
+    ]
+  };
+
   let state = { headers: [], rows: [] };
   let dirty = false;
   let authorized = false;
+  let filterText = '';
 
   const $status = document.getElementById('status');
   const $tools = document.getElementById('tools');
@@ -166,22 +237,47 @@ table.admin-table td.row-actions{
   const $thead = document.getElementById('thead');
   const $tbody = document.getElementById('tbody');
   const $empty = document.getElementById('emptyMsg');
+  const $search = document.getElementById('searchInput');
 
-  // --- Загрузка данных ---
   async function loadTable(){
     try {
       const res = await fetch(API + '?t=' + Date.now(), { cache:'no-store' });
       const data = await res.json();
-      state.headers = Array.isArray(data.headers) ? data.headers : [];
-      state.rows = Array.isArray(data.rows) ? data.rows : [];
+      const hasData = (data.headers && data.headers.length) || (data.rows && data.rows.length);
+      if (hasData){
+        state.headers = data.headers || [];
+        state.rows = data.rows || [];
+      } else {
+        // облако пустое — используем встроенные данные
+        state.headers = DEFAULT_TABLE.headers.slice();
+        state.rows = DEFAULT_TABLE.rows.map(r => r.slice());
+      }
     } catch(e){
       console.error('load error', e);
-      state.headers = [];
-      state.rows = [];
+      state.headers = DEFAULT_TABLE.headers.slice();
+      state.rows = DEFAULT_TABLE.rows.map(r => r.slice());
     }
   }
 
-  // --- Рендер ---
+  // Строка считается «секцией», если заполнена только первая ячейка
+  function isSectionRow(row){
+    if (!row || !row.length) return false;
+    if (!row[0] || !String(row[0]).trim()) return false;
+    for (let i = 1; i < row.length; i++){
+      if (row[i] && String(row[i]).trim()) return false;
+    }
+    return true;
+  }
+
+  function rowMatchesFilter(row, idx){
+    if (!filterText) return true;
+    const t = filterText.toLowerCase();
+    for (const c of row){
+      if (c && String(c).toLowerCase().includes(t)) return true;
+    }
+    return false;
+  }
+
   function renderTable(){
     $thead.innerHTML = '';
     $tbody.innerHTML = '';
@@ -207,7 +303,7 @@ table.admin-table td.row-actions{
         th.addEventListener('blur', () => {
           state.headers[i] = th.textContent.trim();
           dirty = true;
-          setStatus('Изменено', '');
+          setStatus('Изменено', 'dirty');
         });
         th.addEventListener('keydown', e => {
           if (e.key === 'Enter'){ e.preventDefault(); th.blur(); }
@@ -216,7 +312,6 @@ table.admin-table td.row-actions{
       $thead.appendChild(th);
     });
 
-    // Колонка действий
     if (authorized){
       const th = document.createElement('th');
       th.textContent = '';
@@ -226,7 +321,10 @@ table.admin-table td.row-actions{
 
     // Строки
     state.rows.forEach((row, ri) => {
+      if (!rowMatchesFilter(row, ri)) return;
+
       const tr = document.createElement('tr');
+      if (isSectionRow(row)) tr.classList.add('section-row');
 
       state.headers.forEach((_, ci) => {
         const td = document.createElement('td');
@@ -236,13 +334,14 @@ table.admin-table td.row-actions{
           td.addEventListener('blur', () => {
             state.rows[ri][ci] = td.textContent;
             dirty = true;
-            setStatus('Изменено', '');
+            setStatus('Изменено', 'dirty');
+            // Если строка стала секционной или перестала — перерисуем
+            if (isSectionRow(state.rows[ri]) !== tr.classList.contains('section-row')){
+              renderTable();
+            }
           });
           td.addEventListener('keydown', e => {
-            if (e.key === 'Enter' && !e.shiftKey){
-              e.preventDefault();
-              td.blur();
-            }
+            if (e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); td.blur(); }
           });
         }
         tr.appendChild(td);
@@ -261,7 +360,7 @@ table.admin-table td.row-actions{
           state.rows.splice(ri, 1);
           dirty = true;
           renderTable();
-          setStatus('Изменено', '');
+          setStatus('Изменено', 'dirty');
         });
         td.appendChild(btn);
         tr.appendChild(td);
@@ -271,13 +370,11 @@ table.admin-table td.row-actions{
     });
   }
 
-  // --- Статус ---
   function setStatus(text, cls){
     $status.textContent = text;
     $status.className = 'save-status' + (cls ? ' ' + cls : '');
   }
 
-  // --- Сохранение ---
   async function saveTable(){
     if (!authorized) return;
     setStatus('⏳ Сохраняю...', 'saving');
@@ -303,7 +400,6 @@ table.admin-table td.row-actions{
     }
   }
 
-  // --- Добавить строку ---
   function addRow(){
     if (!state.headers.length){
       alert('Сначала добавь хотя бы одну колонку.');
@@ -312,15 +408,13 @@ table.admin-table td.row-actions{
     state.rows.push(new Array(state.headers.length).fill(''));
     dirty = true;
     renderTable();
-    setStatus('Изменено', '');
-    // Скроллим к новой строке
+    setStatus('Изменено', 'dirty');
     setTimeout(() => {
       const rows = $tbody.querySelectorAll('tr');
       if (rows.length) rows[rows.length - 1].scrollIntoView({ behavior:'smooth', block:'center' });
     }, 50);
   }
 
-  // --- Добавить колонку ---
   function addCol(){
     const name = prompt('Название новой колонки:', 'Новая колонка');
     if (name === null) return;
@@ -328,25 +422,22 @@ table.admin-table td.row-actions{
     state.rows.forEach(r => r.push(''));
     dirty = true;
     renderTable();
-    setStatus('Изменено', '');
+    setStatus('Изменено', 'dirty');
   }
 
-  // --- Очистить таблицу ---
   function clearTable(){
     if (!confirm('Удалить ВСЕ строки и колонки? Действие необратимо.')) return;
     state = { headers: [], rows: [] };
     dirty = true;
     renderTable();
-    setStatus('Изменено', '');
+    setStatus('Изменено', 'dirty');
   }
 
-  // --- Авторизация через тот же edit.js ---
   function checkAuth(){
     const until = Number(localStorage.getItem('orenti-auth-until'));
     return until && until > Date.now();
   }
 
-  // --- Инициализация ---
   (async function init(){
     await loadTable();
 
@@ -357,19 +448,29 @@ table.admin-table td.row-actions{
       document.getElementById('btnAddCol').addEventListener('click', addCol);
       document.getElementById('btnClear').addEventListener('click', clearTable);
       document.getElementById('btnSave').addEventListener('click', saveTable);
+      $search.addEventListener('input', function(){
+        filterText = this.value.trim();
+        renderTable();
+      });
+    } else {
+      // для незалогиненных скрываем поиск, но показываем
+      $tools.style.display = '';
+      document.getElementById('btnAddRow').style.display = 'none';
+      document.getElementById('btnAddCol').style.display = 'none';
+      document.getElementById('btnClear').style.display = 'none';
+      document.getElementById('btnSave').style.display = 'none';
+      $search.addEventListener('input', function(){
+        filterText = this.value.trim();
+        renderTable();
+      });
     }
 
     renderTable();
 
-    // Предупреждение при уходе с несохранёнными правками
     window.addEventListener('beforeunload', e => {
-      if (dirty && authorized){
-        e.preventDefault();
-        e.returnValue = '';
-      }
+      if (dirty && authorized){ e.preventDefault(); e.returnValue = ''; }
     });
 
-    // Авто-сохранение по Ctrl+S
     document.addEventListener('keydown', e => {
       if ((e.ctrlKey || e.metaKey) && e.key === 's' && authorized){
         e.preventDefault();
