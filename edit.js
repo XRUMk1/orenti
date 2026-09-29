@@ -10,7 +10,7 @@
     sessionHours: 72,
     showWhenLocked: false
   };
-  // ============ / НАСТРОЙКИ ==============
+  // ============ / НАСТРОЙКИ =============
 
   const AUTH_KEY  = 'orenti-auth-until';
   const TOKEN_KEY = 'orenti-edit-token';
